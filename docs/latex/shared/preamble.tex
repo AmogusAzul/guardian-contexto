@@ -1,0 +1,55 @@
+% Parte compartida: paquetes, tipografía, colores y macros de diseño.
+% Compilar con LuaLaTeX (ver build.sh).
+\usepackage[a4paper,margin=9mm]{geometry}
+\usepackage[spanish,es-noquoting]{babel}
+\usepackage[sfdefault]{FiraSans}   % misma tipografía que la marca (Google Fonts: Fira Sans)
+\setmonofont{FiraMono-Regular.otf}[BoldFont=FiraMono-Bold.otf,ItalicFont=FiraMono-Oblique.otf,Scale=MatchLowercase] % sin ligaduras TeX: comillas rectas en el código
+\usepackage{tikz}
+\usepackage{xcolor,graphicx,tabularx,array,enumitem,booktabs,colortbl}
+\usepackage{fancyvrb,ragged2e}
+\usepackage[most]{tcolorbox}
+\usepackage[hidelinks]{hyperref}
+
+% --- Colores de roles (iguales a diagram.svg) ---
+\definecolor{ink}{HTML}{0F172A}
+\definecolor{muted}{HTML}{475569}
+\definecolor{line}{HTML}{CBD5E1}
+\definecolor{soft}{HTML}{F1F5F9}
+\definecolor{datos}{HTML}{2563EB}
+\definecolor{server}{HTML}{16A34A}
+\definecolor{algo}{HTML}{EA580C}
+\definecolor{pitch}{HTML}{9333EA}
+% --- Colores de marca de Colibrí Code (iguales a business-brief.md) ---
+\definecolor{brand}{HTML}{0F766E}
+\definecolor{accent}{HTML}{DB2777}
+\definecolor{amber}{HTML}{D97706}
+\definecolor{block}{HTML}{DC2626}
+\definecolor{allow}{HTML}{16A34A}
+\definecolor{mist}{HTML}{F8FAFC}
+
+\color{ink}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3pt}
+\setlist{nosep,leftmargin=12pt,itemsep=1pt}
+\renewcommand{\arraystretch}{1.15}
+\setlength{\tabcolsep}{3pt}
+\arrayrulecolor{line}
+
+% --- Macros de diseño ---
+\newcommand{\code}[1]{{\ttfamily\color{brand!55!ink}#1}}
+\newcommand{\sect}[1]{\par\vspace{4pt}{\bfseries\large\MakeUppercase{#1}}\par\vspace{-3pt}{\color{ink}\rule{\linewidth}{1pt}}\par\vspace{1pt}}
+\newcommand{\roletag}[2]{{\color{#1}\rule[-1pt]{3pt}{9pt}}\,\textbf{#2}}
+% \pageheader{color}{título}{subtítulo}
+\newcommand{\pageheader}[3]{%
+  {\color{#1}\rule{\linewidth}{3pt}}\par\vspace{2pt}
+  {\bfseries\fontsize{17}{19}\selectfont #2}\par
+  {\color{muted}#3}\par\vspace{3pt}}
+\newtcolorbox{callout}[1][ink]{enhanced,boxrule=0pt,leftrule=2.5pt,colframe=#1,colback=soft,
+  arc=0pt,left=5pt,right=4pt,top=3pt,bottom=3pt,before skip=3pt,after skip=4pt}
+% Bloques de código: \begin{codebox}\begin{Verbatim}...\end{Verbatim}\end{codebox}
+\fvset{fontsize=\footnotesize}
+\newtcolorbox{codebox}{colback=soft,colframe=line,boxrule=0.5pt,arc=2pt,left=3pt,right=3pt,top=1pt,bottom=1pt,before skip=3pt,after skip=3pt}
+% Columnas: texto alineado a la izquierda y espacio entre párrafos (minipage los reinicia)
+\newcommand{\colsetup}{\RaggedRight\setlength{\parskip}{3pt}}
+\AtBeginDocument{\RaggedRight}

@@ -1,0 +1,6 @@
+# LaTeX build intermediates
+docs/latex/*.aux
+docs/latex/*.log
+docs/latex/*.fls
+docs/latex/*.fdb_latexmk
+docs/latex/*.out
