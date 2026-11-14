@@ -36,6 +36,9 @@ NEAR_DUP_JACCARD = 0.85
 TARGET_ATTACK_SHARE = 0.5
 MAX_SOURCE_SHARE = 0.45
 MAX_LABEL_SHARE_IN_SOURCE = 0.75
+# Fuentes que el recorte 50/50 toca de último: corrigen un sesgo (la banca aparecía casi solo en
+# ataques) y recortarlas lo devolvería. Ver docs/data-banking-negatives.md.
+PROTECTED_SOURCES = ("synthetic_banking",)
 
 # Patrones de inyección explícita: un texto "legítimo" que los tenga es una etiqueta sospechosa.
 EXPLICIT_INJECTION = re.compile(
@@ -127,7 +130,8 @@ def span_found(row: dict) -> bool:
 # --------------------------------------------------------------------------------------
 
 YAML_SHARE = 0.35  # fracción de las salidas estructuradas que se pasan a YAML
-YAML_SOURCES = ("glaive_function_responses", "injecagent", "synthetic_key_injection", "synthetic_api_json")
+YAML_SOURCES = ("glaive_function_responses", "injecagent", "synthetic_key_injection", "synthetic_api_json",
+                "synthetic_banking")
 
 
 def to_agentdojo_yaml(text: str) -> str:
@@ -294,6 +298,7 @@ def balance(rows: list[dict], rng: random.Random, rejected: list[dict]) -> list[
                 major_bins = collections.Counter(bin_of(r) for r in major)
                 b = max(major_bins, key=lambda k: major_bins[k] / len(major) - minor_bins.get(k, 0) / max(1, len(minor)))
                 cand = [r for r in major if bin_of(r) == b]
+                cand = [r for r in cand if r["source"] not in PROTECTED_SOURCES] or cand
                 src = collections.Counter(r["source"] for r in cand).most_common(1)[0][0]
                 cand = [r for r in cand if r["source"] == src]
                 cat = collections.Counter(r["category"] for r in cand).most_common(1)[0][0]
@@ -447,6 +452,11 @@ def main() -> None:
         except Exception as e:  # sin red: seguir con lo que haya
             if not args.offline:
                 print(f"AVISO: {name} no disponible ({e})", file=sys.stderr)
+
+    # Banca y pagos, sobre todo LEGÍTIMOS (docs/data-banking-negatives.md): sin esto "IBAN/transferencia"
+    # aparecía casi solo en ataques y la dirección de ataque aprendía "banca = ataque".
+    import banking
+    rows += banking.generate()
 
     n_input = len(rows)
     rejected: list[dict] = []

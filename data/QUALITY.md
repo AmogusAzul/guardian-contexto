@@ -2,86 +2,89 @@
 
 Generado por `python data/build.py`. No editar a mano.
 
-Filas candidatas: 4911. Aceptadas: 3542. Descartadas: 1549 (detalle fila por fila en `rejected.csv`).
+Filas candidatas: 5259. Aceptadas: 3878. Descartadas: 1561 (detalle fila por fila en `rejected.csv`).
 
 ## Composición final
 
 | Split | Filas | Ataques | Legítimos | % ataque | Hard negatives (% de legítimos) |
 |---|---|---|---|---|---|
-| train | 1628 | 814 | 814 | 50% | 258 (32%) |
-| val | 480 | 240 | 240 | 50% | 120 (50%) |
-| test | 1434 | 717 | 717 | 50% | 318 (44%) |
+| train | 1784 | 892 | 892 | 50% | 336 (38%) |
+| val | 532 | 266 | 266 | 50% | 166 (62%) |
+| test | 1562 | 781 | 781 | 50% | 382 (49%) |
 
 ### Por fuente
 
 | Split | Fuente | Ataques | Legítimos | % del split |
 |---|---|---|---|---|
-| train | glaive_function_responses | 240 | 435 | 41% |
-| train | injecagent | 81 | 28 | 7% |
-| train | llmail_benign_emails | 0 | 57 | 4% |
-| train | llmail_phase1 | 281 | 0 | 17% |
-| train | synthetic_bank_statement | 40 | 51 | 6% |
+| train | glaive_function_responses | 253 | 435 | 39% |
+| train | injecagent | 84 | 28 | 6% |
+| train | llmail_benign_emails | 0 | 57 | 3% |
+| train | llmail_phase1 | 317 | 0 | 18% |
+| train | synthetic_bank_statement | 40 | 51 | 5% |
+| train | synthetic_banking | 26 | 78 | 6% |
 | train | synthetic_chat_message | 37 | 52 | 5% |
-| train | synthetic_email | 37 | 55 | 6% |
-| train | synthetic_key_injection | 30 | 30 | 4% |
+| train | synthetic_email | 37 | 55 | 5% |
+| train | synthetic_key_injection | 30 | 30 | 3% |
 | train | synthetic_order_status | 35 | 52 | 5% |
 | train | synthetic_wiki_doc | 33 | 54 | 5% |
-| val | glaive_function_responses | 87 | 51 | 29% |
-| val | injecagent | 48 | 15 | 13% |
+| val | glaive_function_responses | 87 | 44 | 25% |
+| val | injecagent | 48 | 9 | 11% |
 | val | llmail_benign_emails | 0 | 30 | 6% |
-| val | notinject | 0 | 16 | 3% |
-| val | synthetic_calendar | 38 | 52 | 19% |
-| val | synthetic_key_injection | 30 | 29 | 12% |
-| val | synthetic_support_ticket | 37 | 47 | 18% |
-| test | glaive_function_responses | 120 | 222 | 24% |
+| val | notinject | 0 | 10 | 2% |
+| val | synthetic_banking | 26 | 61 | 16% |
+| val | synthetic_calendar | 38 | 43 | 15% |
+| val | synthetic_key_injection | 30 | 25 | 10% |
+| val | synthetic_support_ticket | 37 | 44 | 15% |
+| test | glaive_function_responses | 124 | 222 | 22% |
 | test | injecagent | 66 | 24 | 6% |
-| test | llmail_benign_emails | 0 | 95 | 7% |
-| test | llmail_phase2 | 386 | 0 | 27% |
-| test | notinject | 0 | 166 | 12% |
-| test | synthetic_api_json | 40 | 60 | 7% |
+| test | llmail_benign_emails | 0 | 95 | 6% |
+| test | llmail_phase2 | 421 | 0 | 27% |
+| test | notinject | 0 | 166 | 11% |
+| test | synthetic_api_json | 40 | 60 | 6% |
+| test | synthetic_banking | 25 | 64 | 6% |
 | test | synthetic_key_injection | 30 | 30 | 4% |
-| test | synthetic_product_review | 38 | 59 | 7% |
-| test | synthetic_web_page | 37 | 61 | 7% |
+| test | synthetic_product_review | 38 | 59 | 6% |
+| test | synthetic_web_page | 37 | 61 | 6% |
 
 ### Categorías
 
 | Categoría | train | val | test |
 |---|---|---|---|
-| exfiltration | 110 | 53 | 73 |
-| fake_authority | 54 | 22 | 35 |
-| hard_negative | 258 | 120 | 318 |
-| human_adaptive | 281 | 0 | 386 |
-| instruction_override | 65 | 26 | 35 |
+| exfiltration | 123 | 58 | 80 |
+| fake_authority | 54 | 22 | 36 |
+| hard_negative | 336 | 166 | 382 |
+| human_adaptive | 317 | 0 | 421 |
+| instruction_override | 66 | 26 | 37 |
 | key_injection | 30 | 30 | 30 |
-| role_hijack | 64 | 23 | 38 |
-| task_aligned | 30 | 12 | 18 |
-| task_redirect | 70 | 27 | 35 |
-| tool_misuse | 110 | 47 | 67 |
-| tool_output | 556 | 120 | 399 |
+| role_hijack | 69 | 23 | 40 |
+| task_aligned | 51 | 33 | 38 |
+| task_redirect | 71 | 27 | 34 |
+| tool_misuse | 111 | 47 | 65 |
+| tool_output | 556 | 100 | 399 |
 
 ### Formato YAML (como AgentDojo)
 
-35% de las salidas estructuradas de glaive_function_responses, injecagent, synthetic_key_injection, synthetic_api_json van en YAML (`yaml.safe_dump`, igual que AgentDojo).
+35% de las salidas estructuradas de glaive_function_responses, injecagent, synthetic_key_injection, synthetic_api_json, synthetic_banking van en YAML (`yaml.safe_dump`, igual que AgentDojo).
 
 | Split | Ataques en YAML | Legítimos en YAML | `key_injection` en YAML |
 |---|---|---|---|
-| train | 147 | 178 | 8 |
-| val | 58 | 29 | 13 |
-| test | 80 | 128 | 8 |
+| train | 160 | 190 | 8 |
+| val | 63 | 27 | 13 |
+| test | 91 | 132 | 8 |
 
 ## Descartes por criterio
 
-| Motivo | glaive_function_responses | injecagent | llmail_benign_emails | llmail_phase1 | llmail_phase2 | notinject | synthetic_api_json | synthetic_bank_statement | synthetic_calendar | synthetic_chat_message | synthetic_email | synthetic_key_injection | synthetic_order_status | synthetic_product_review | synthetic_support_ticket | synthetic_web_page | synthetic_wiki_doc |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| balance_attack_benign | 151 | 4 | 0 | 589 | 158 | 72 | 0 | 0 | 12 | 0 | 0 | 1 | 0 | 0 | 15 | 0 | 0 |
-| balance_label_within_source | 0 | 177 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| exact_duplicate | 3 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 1 | 1 | 1 | 1 |
-| near_duplicate | 104 | 0 | 55 | 1 | 5 | 0 | 2 | 2 | 4 | 4 | 5 | 0 | 7 | 3 | 4 | 4 | 8 |
-| not_english | 22 | 0 | 0 | 29 | 9 | 31 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| not_english+pii_like | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| pii_like | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| too_short | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| too_short+not_english | 0 | 0 | 0 | 0 | 0 | 54 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Motivo | glaive_function_responses | injecagent | llmail_benign_emails | llmail_phase1 | llmail_phase2 | notinject | synthetic_api_json | synthetic_bank_statement | synthetic_banking | synthetic_calendar | synthetic_chat_message | synthetic_email | synthetic_key_injection | synthetic_order_status | synthetic_product_review | synthetic_support_ticket | synthetic_web_page | synthetic_wiki_doc |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| balance_attack_benign | 141 | 7 | 0 | 553 | 123 | 78 | 0 | 0 | 13 | 21 | 0 | 0 | 5 | 0 | 0 | 18 | 0 | 0 |
+| balance_label_within_source | 0 | 177 | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| exact_duplicate | 3 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1 | 0 | 0 | 0 | 1 | 1 | 1 | 1 |
+| near_duplicate | 104 | 0 | 55 | 1 | 5 | 0 | 2 | 2 | 49 | 4 | 4 | 5 | 0 | 7 | 3 | 4 | 4 | 8 |
+| not_english | 22 | 0 | 0 | 29 | 9 | 31 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| not_english+pii_like | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| pii_like | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| too_short | 6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| too_short+not_english | 0 | 0 | 0 | 0 | 0 | 54 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ## Atajos medidos (0,5 = la señal no ayuda a separar)
 
@@ -91,20 +94,20 @@ La AUC *dentro de fuente* (promedio ponderado entre fuentes con ambas etiquetas)
 
 | Split | AUC longitud (split) | AUC longitud (dentro de fuente) | Ataques con URL/correo | Legítimos con URL/correo | Ataques con 'assistant'/'AI' | Legítimos con 'assistant'/'AI' |
 |---|---|---|---|---|---|---|
-| train | 0.72 | 0.67 | 70% | 14% | 44% | 14% |
-| val | 0.57 | 0.63 | 68% | 25% | 51% | 17% |
-| test | 0.80 | 0.70 | 83% | 15% | 25% | 8% |
+| train | 0.74 | 0.70 | 69% | 13% | 46% | 13% |
+| val | 0.60 | 0.64 | 62% | 21% | 50% | 15% |
+| test | 0.82 | 0.73 | 81% | 13% | 25% | 7% |
 
 ## Verificaciones de fuga
 
 - Textos idénticos entre splits: **0**.
-- Fuentes presentes en más de un split: glaive_function_responses, injecagent, llmail_benign_emails, notinject, synthetic_key_injection (separadas por tema, herramienta, caso de ataque o subconjunto; ver README).
+- Fuentes presentes en más de un split: glaive_function_responses, injecagent, llmail_benign_emails, notinject, synthetic_banking, synthetic_key_injection (separadas por tema, herramienta, caso de ataque o subconjunto; ver README).
 - Filas con firmas de AgentDojo: **0**.
 - Filas con datos de atacante de otro split: **0**.
 
 ## Longitud mediana (caracteres)
 
-train: 228, val: 245, test: 244
+train: 226, val: 238, test: 240
 
 
 ## Manifiestos MCP (`mcp_manifests.jsonl`, solo evaluación)
