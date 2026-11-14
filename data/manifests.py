@@ -75,7 +75,8 @@ def mcptox_rows() -> list[dict]:
             # Resto del formato de MCPTox en ~la mitad de las envenenadas (las limpias nunca lo
             # tienen): "\nArguments:\n- No arguments\n\n\n" con \n literales. Sería un atajo perfecto.
             text = _ARGS_ARTIFACT.sub("", v["tool_content"]).replace("\\n", "\n").strip()
-            rows.append(dict(text=text, label="attack",
+            # injected_text: la descripción entera la escribió el atacante (como en LLMail).
+            rows.append(dict(text=text, injected_text=text, label="attack",
                              category=_snake(v["security risk"]), source="mcptox_poisoned",
                              server=v["server_name"], tool_name=v["tool_name"], query=v["query"],
                              paradigm=v["paradigm"], split=_server_split(v["server_name"])))
