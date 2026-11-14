@@ -92,7 +92,8 @@ def evaluar_csv(csv_path: str | Path, output_json: str | Path | None = None) -> 
                 por_categoria[cat]["g_tn"] += 1
 
         # Evaluar Keyword Detector
-        kw_detectado, _ = kw_detector.detect(texto)
+        res_kw = kw_detector.detect(texto)
+        kw_detectado = res_kw[0] if isinstance(res_kw, tuple) else bool(res_kw)
         if es_ataque:
             if kw_detectado:
                 kw_tp += 1
@@ -234,7 +235,8 @@ def evaluar_mcp_jsonl(jsonl_path: str | Path, output_json: str | Path | None = N
                 g_tn += 1
                 por_categoria[cat]["g_tn"] += 1
 
-        kw_detectado, _ = kw_detector.detect(texto)
+        res_kw = kw_detector.detect(texto)
+        kw_detectado = res_kw[0] if isinstance(res_kw, tuple) else bool(res_kw)
         if es_ataque:
             if kw_detectado:
                 kw_tp += 1
