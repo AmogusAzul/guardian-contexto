@@ -506,8 +506,12 @@ ATTACK_CATEGORIES = ["exfiltration", "instruction_override", "role_hijack", "too
                      "fake_authority", "task_redirect", "task_aligned"]
 
 
-def separator(fam: str) -> str:
-    return "\n" if fam in ("bank_statement", "chat_message", "api_json") else "\n\n---\n\n"
+def join_items(fam: str, texts: list[str]) -> str:
+    """Une los elementos de una salida. En `api_json` el resultado tiene que ser UN JSON válido
+    (el guardián recorre claves y rutas): varios objetos van como lista JSON."""
+    if fam == "api_json":
+        return texts[0] if len(texts) == 1 else "[" + ", ".join(texts) + "]"
+    return ("\n" if fam in ("bank_statement", "chat_message") else "\n\n---\n\n").join(texts)
 
 
 def carriers(fam: str, n: int, rng: random.Random, slots: _Azar) -> tuple[list[str], bool]:
@@ -580,18 +584,18 @@ def gen_synthetic(rng: random.Random, reps: int, composed: int, attacks_per_fami
         # …y compuestos de 2 a 4 elementos, para que la longitud no delate la etiqueta.
         for _ in range(composed):
             texts, hard = carriers(fam, rng.randint(2, 5), rng, _Azar(rng, split))
-            rows.append(row(separator(fam).join(texts), "benign", "hard_negative" if hard else "tool_output"))
+            rows.append(row(join_items(fam, texts), "benign", "hard_negative" if hard else "tool_output"))
 
         # Ataques: algunos solos (cortos), la mayoría dentro de 1 a 3 elementos legítimos.
         for i in range(attacks_per_family):
             cat = ATTACK_CATEGORIES[i % len(ATTACK_CATEGORIES)]
             slots = _Azar(rng, split)
             _, wrapped = make_payload(fam, cat, rng, slots)
-            if rng.random() < 0.2:
-                text = wrapped
+            if rng.random() < 0.2:  # la inyección sola (en api_json, como único campo de un JSON)
+                text = json.dumps({rng.choice(JSON_KEYS[split]): wrapped}, ensure_ascii=False) if fam == "api_json" else wrapped
             else:
                 texts, _ = carriers(fam, rng.randint(1, 2), rng, slots)
-                text = separator(fam).join(inject(fam, texts, wrapped, rng))
+                text = join_items(fam, inject(fam, texts, wrapped, rng))
             rows.append(row(text, "attack", cat))
     return rows
 

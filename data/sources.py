@@ -18,6 +18,7 @@ Cada cargador devuelve filas: dict(text, label, category, source, split, [prompt
 
 from __future__ import annotations
 
+import ast
 import collections
 import hashlib
 import json
@@ -262,6 +263,29 @@ INJECAGENT_TOOL_SPLIT = {
 }
 
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+(\.[\w-]+)+\b")
+_PLACEHOLDER = "<Attacker Instruction>"
+
+
+def fill_injecagent_template(tpl: str, content: str) -> tuple[str, str]:
+    """Las plantillas de InjecAgent son diccionarios de Python ({'a': True}), no JSON: el guardián
+    no podría recorrer sus claves ni dar rutas. Se leen como estructura, se pone `content` en el
+    campo del marcador y se escriben como JSON válido. Devuelve (json, ruta del campo, p. ej.
+    "$.product_details.reviews[0].review_content")."""
+    found: list[str] = []
+
+    def walk(o, path):
+        if isinstance(o, dict):
+            return {k: walk(v, f"{path}.{k}") for k, v in o.items()}
+        if isinstance(o, list):
+            return [walk(v, f"{path}[{i}]") for i, v in enumerate(o)]
+        if isinstance(o, str) and _PLACEHOLDER in o:
+            found.append(path)
+            return o.replace(_PLACEHOLDER, content)
+        return o
+
+    obj = walk(ast.literal_eval(tpl), "$")
+    assert len(found) == 1, (tpl, found)
+    return json.dumps(obj, ensure_ascii=False), found[0]
 
 
 def injecagent(evil_emails: dict[str, list[str]]) -> list[dict]:
@@ -288,7 +312,8 @@ def injecagent(evil_emails: dict[str, list[str]]) -> list[dict]:
                     args=u["Tool Parameters"])
         for i, filler in enumerate(INJECAGENT_BENIGN[u["User Tool"]]):
             cat = "hard_negative" if i == len(INJECAGENT_BENIGN[u["User Tool"]]) - 1 else "tool_output"
-            rows.append(dict(base, text=tpl.replace("<Attacker Instruction>", filler), label="benign", category=cat))
+            text, _ = fill_injecagent_template(tpl, filler)
+            rows.append(dict(base, text=text, label="benign", category=cat))
         for a in attackers:
             if att_split[a["Attacker Instruction"]] != split:
                 continue
@@ -297,8 +322,8 @@ def injecagent(evil_emails: dict[str, list[str]]) -> list[dict]:
                 instr = INJECAGENT_ENHANCED + instr
             cat = "exfiltration" if a["Attack Type"] in ("Financial Data", "Physical Data", "Others") and "email" in instr.lower() \
                 else "tool_misuse"
-            rows.append(dict(base, text=tpl.replace("<Attacker Instruction>", instr), label="attack", category=cat,
-                             injected_text=instr))
+            text, path = fill_injecagent_template(tpl, instr)
+            rows.append(dict(base, text=text, label="attack", category=cat, injected_text=instr, injected_path=path))
     return rows
 
 
@@ -344,6 +369,14 @@ def build_glaive_pool(n: int = 1500, per_tool: int = 4, min_chars: int = 60) -> 
     return out
 
 
+def user_messages(prompt: str) -> str:
+    """El tramo capturado puede abarcar varios turnos ("…\\n\\nASSISTANT: Sure… <|endoftext|>\\n\\nUSER: …").
+    El contrato de check() dice que `tarea` son los mensajes del USUARIO unidos: se quitan los del asistente."""
+    parts = re.split(r"\s*(USER:|ASSISTANT:)\s*", "USER: " + prompt.replace("<|endoftext|>", " "))
+    msgs = [parts[i + 1].strip() for i in range(1, len(parts) - 1, 2) if parts[i] == "USER:" and parts[i + 1].strip()]
+    return " ".join(msgs)
+
+
 def glaive(make_attack) -> list[dict]:
     """Split por NOMBRE DE FUNCIÓN (60/15/25): la misma API no aparece en dos splits.
     Al ~40 % se le inyecta un ataque del split dentro del JSON (make_attack), para que la fuente
@@ -354,7 +387,8 @@ def glaive(make_attack) -> list[dict]:
         x = json.loads(line)
         b = stable_bucket(x["tool"], 20)
         split = "train" if b < 12 else ("val" if b < 15 else "test")
-        base = dict(source="glaive_function_responses", split=split, prompt=x["prompt"], tool=x["tool"], args=x["args"])
+        base = dict(source="glaive_function_responses", split=split, prompt=user_messages(x["prompt"]),
+                    tool=x["tool"], args=x["args"])
         if rng.random() < 0.4:
             text, category, injected = make_attack(x["text"], split, rng)
             rows.append(dict(base, text=text, label="attack", category=category, injected_text=injected))

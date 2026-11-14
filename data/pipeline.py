@@ -376,6 +376,16 @@ def main() -> None:
         else:
             clean.append(r)
     clean = dedup(clean, rejected)
+
+    # Ataques en las CLAVES del JSON (docs/data-key-attacks.md), sobre salidas JSON ya aceptadas.
+    # Van después de la deduplicación a propósito: cada uno es su portador + una clave (pares mínimos).
+    import key_attacks
+    carriers = [r for r in clean if r["source"] in ("glaive_function_responses", "injecagent")]
+    for r in key_attacks.generate(carriers):
+        r = dict(r, text=normalize(r["text"]))
+        issues = quality_issues(r)
+        (rejected.append(dict(r, reason="+".join(issues))) if issues else clean.append(r))
+
     final = balance(clean, rng, rejected)
 
     for s in SPLITS:
@@ -389,7 +399,13 @@ def main() -> None:
         w = csv.DictWriter(f, fieldnames=["reason", "split", "source", "label", "category", "text"], extrasaction="ignore")
         w.writeheader()
         w.writerows(sorted(rejected, key=lambda r: (r["reason"], r["source"])))
-    (DATA / "QUALITY.md").write_text(report(final, rejected, n_input), encoding="utf-8")
+    try:  # manifiestos MCP (MCPTox + ToolACE), solo evaluación; se generan en local
+        import manifests
+        manifest_md = manifests.build(quality_issues, normalize)
+    except Exception as e:
+        manifest_md = f"\n## Manifiestos MCP\n\nNo generados ({e}).\n"
+        print(f"AVISO: manifiestos MCP no generados ({e})", file=sys.stderr)
+    (DATA / "QUALITY.md").write_text(report(final, rejected, n_input) + manifest_md, encoding="utf-8")
 
     from build_mcp import write_mcp  # casos MCP (prompt + respuesta) solo con filas aceptadas
     write_mcp(final)
