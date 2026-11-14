@@ -263,7 +263,7 @@ def stack_method(
 ):
     xs, ys = [], []
     for s in scored:
-        x = stack.features(s.classes, s.attack, s.refs)
+        x = stack.features(s.case.chunks, s.attack, s.refs)
         for row, lab in zip(x, s.case.labels):
             if lab is not None:
                 xs.append(row)
@@ -271,7 +271,7 @@ def stack_method(
     w = stack.fit(np.array(xs), np.array(ys))
 
     def risk(s: Scored) -> np.ndarray:
-        return stack.predict(stack.features(s.classes, s.attack, s.refs), w)
+        return stack.predict(stack.features(s.case.chunks, s.attack, s.refs), w)
 
     tau = best_single(tune or scored, risk)
 

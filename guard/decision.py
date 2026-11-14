@@ -32,8 +32,7 @@ def mask(
     """Qué trozos pasan el umbral, antes de resolver solapes."""
     t = thresholds or ref.thresholds
     if ref.method == "stack" and refs is not None and len(ref.stack):
-        classes = [reference.chunk_class(c) for c in chunks]
-        risk = stack.predict(stack.features(classes, attack_scores, refs), ref.stack)
+        risk = stack.predict(stack.features(chunks, attack_scores, refs), ref.stack)
         return [bool(r >= t["tau_stack"]) for r in risk]
     return [flags(a, d, t) for a, d in zip(attack_scores, drift_scores, strict=True)]
 
