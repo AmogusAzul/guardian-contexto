@@ -34,10 +34,11 @@ def check(
     vectors = embedding.embed([c.text for c in chunks])
     attack_scores = attack.score(chunks, vectors)
     # El mensaje del usuario es la tarea: medir su desvío contra sí mismo no tiene sentido.
-    drift_scores = drift.score(
+    refs = drift.percentiles(
         chunks, vectors, None if origen == "usuario" else tarea, herramienta
     )
-    flagged = decision.decide(chunks, attack_scores, drift_scores)
+    drift_scores = drift.from_percentiles(refs)
+    flagged = decision.decide(chunks, attack_scores, drift_scores, refs)
     texto_limpio = rebuild.rebuild(doc, [chunks[i] for i in flagged])
 
     marcados = [

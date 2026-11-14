@@ -103,6 +103,30 @@ def combine(percentiles: Sequence[float | None]) -> tuple[float, int] | None:
     return 1.0 - max(ps) ** len(ps), len(ps)
 
 
+Percentiles = dict[str, float | None]
+
+
+def percentiles(
+    chunks: Sequence[Chunk],
+    vectors: np.ndarray,
+    task: str | None,
+    tool: ToolCall | None,
+    model: str = embedding.MODEL,
+) -> list[Percentiles]:
+    """Por trozo, el percentil de su coseno con cada referencia (None si no existe)."""
+    ref = reference.load(model)
+    raws = raw_cosines(chunks, vectors, task, tool, model)
+    return [
+        {
+            r: None
+            if (x := raws[r][i]) is None
+            else ref.percentile(f"drift-{r}", reference.chunk_class(c), x)
+            for r in REFERENCES
+        }
+        for i, c in enumerate(chunks)
+    ]
+
+
 def score(
     chunks: Sequence[Chunk],
     vectors: np.ndarray,
@@ -111,16 +135,17 @@ def score(
     model: str = embedding.MODEL,
 ) -> list[float | None]:
     """Un puntaje en [0, 1] por trozo; None si el trozo no tiene ninguna referencia."""
+    return from_percentiles(percentiles(chunks, vectors, task, tool, model), model)
+
+
+def from_percentiles(
+    ps_list: Sequence[Percentiles], model: str = embedding.MODEL
+) -> list[float | None]:
+    """1 − m^k pasado por la tabla final de su k."""
     ref = reference.load(model)
-    raws = raw_cosines(chunks, vectors, task, tool, model)
-    out = []
-    for i, c in enumerate(chunks):
-        cls = reference.chunk_class(c)
-        ps = [
-            None if (x := raws[r][i]) is None else ref.percentile(f"drift-{r}", cls, x)
-            for r in REFERENCES
-        ]
-        comb = combine(ps)
+    out: list[float | None] = []
+    for ps in ps_list:
+        comb = combine(list(ps.values()))
         if comb is None:
             out.append(None)
             continue

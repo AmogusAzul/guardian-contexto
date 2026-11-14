@@ -17,11 +17,17 @@ from guard.chunking import Chunk
 
 ARTIFACTS = Path(__file__).parent / "artifacts"
 QUANTILES = np.linspace(0.0, 1.0, 101)  # 101 puntos por tabla
-TAIL = 0.95  # desde aquí la cola alta se extrapola (no se satura en 1)
+TAIL = 0.95  # desde aquí la cola alta se extrapola (no se satura en 1); la baja, desde 0,05
+MAX_Z = 30.0  # tope de la cola: 1 − 0,05·e⁻³⁰ todavía es menor que 1 (sin empates en 1)
 MIN_TABLE = 200  # una clase con menos ejemplos usa la tabla de su tipo
 
 # Umbrales provisionales hasta la búsqueda en validación (guard.train los reemplaza).
-DEFAULT_THRESHOLDS = {"tau_high": 0.995, "tau_low": 0.95, "tau_drift": 0.95}
+DEFAULT_THRESHOLDS = {
+    "tau_high": 0.995,
+    "tau_low": 0.95,
+    "tau_drift": 0.95,
+    "tau_stack": 0.5,
+}
 
 
 def chunk_class(c: Chunk) -> str:
@@ -36,6 +42,19 @@ def table(values: np.ndarray) -> np.ndarray:
     return np.quantile(np.asarray(values, dtype=np.float64), QUANTILES)
 
 
+def percentile_in(t: np.ndarray, raw: float) -> float:
+    """Percentil de `raw` en una tabla, con las dos colas exponenciales (ver Reference.percentile)."""
+    q = {p: float(np.interp(p, QUANTILES, t)) for p in (0.01, 1 - TAIL, TAIL, 0.99)}
+    log5 = np.log((1 - TAIL) / 0.01)  # exponencial que pasa por los dos percentiles
+    if raw > q[TAIL] and q[0.99] > q[TAIL]:
+        z = min((raw - q[TAIL]) / ((q[0.99] - q[TAIL]) / log5), MAX_Z)
+        return float(1 - (1 - TAIL) * np.exp(-z))
+    if raw < q[1 - TAIL] and q[1 - TAIL] > q[0.01]:
+        z = min((q[1 - TAIL] - raw) / ((q[1 - TAIL] - q[0.01]) / log5), MAX_Z)
+        return float((1 - TAIL) * np.exp(-z))
+    return float(np.interp(raw, t, QUANTILES))
+
+
 @dataclass
 class Reference:
     model: str
@@ -46,29 +65,26 @@ class Reference:
         default_factory=lambda: dict(DEFAULT_THRESHOLDS)
     )
     data: str = ""  # de qué datos y commit salió
+    method: str = (
+        "rule"  # "rule" (dos umbrales) o "stack" (regresión logística, guard/stack.py)
+    )
+    stack: np.ndarray = field(
+        default_factory=lambda: np.zeros(0)
+    )  # pesos de la logística
 
     def percentile(self, score: str, cls: str, raw: float) -> float | None:
         """Posición de `raw` entre los legítimos de su clase (0–1); None si no hay tabla.
 
-        Entre puntos se interpola. Por encima del percentil 95 se usa una cola exponencial
-        ajustada con los percentiles 95 y 99: un valor más alto que todos los legítimos de
-        entrenamiento no se aplasta en 1, sigue ordenado (0,999, 0,9999…). Por debajo, 0.
+        Entre los percentiles 5 y 95 se interpola. Fuera de ahí, colas exponenciales
+        ajustadas con los percentiles 95 y 99 (arriba) y 5 y 1 (abajo): un valor más allá de
+        todos los legítimos de entrenamiento no se aplasta en 1 ni en 0, sigue ordenado.
         """
         t = self.tables.get(f"{score}/{cls}")
         if t is None:
             t = self.tables.get(f"{score}/{cls.split('-')[0]}")  # la tabla del tipo
         if t is None:
             return None
-        q95, q99 = (
-            float(np.interp(TAIL, QUANTILES, t)),
-            float(np.interp(0.99, QUANTILES, t)),
-        )
-        if raw > q95 and q99 > q95:
-            scale = (q99 - q95) / np.log(
-                (1 - TAIL) / 0.01
-            )  # exponencial que pasa por q95 y q99
-            return float(1 - (1 - TAIL) * np.exp(-(raw - q95) / scale))
-        return float(np.interp(raw, t, QUANTILES))
+        return percentile_in(t, raw)
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,6 +94,8 @@ class Reference:
             "direction": self.direction,
             "data": self.data,
             "thresholds": np.array([self.thresholds[k] for k in DEFAULT_THRESHOLDS]),
+            "method": self.method,
+            "stack": self.stack,
         }
         arrays |= {f"table:{k}": v for k, v in self.tables.items()}
         np.savez(path, **arrays)
@@ -98,6 +116,8 @@ class Reference:
                 zip(DEFAULT_THRESHOLDS, map(float, z["thresholds"]), strict=True)
             ),
             data=str(z["data"]),
+            method=str(z["method"]) if "method" in z.files else "rule",
+            stack=z["stack"] if "stack" in z.files else np.zeros(0),
         )
 
 

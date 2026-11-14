@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-from guard import attack, decision, drift, embedding, reference
+from guard import attack, decision, drift, embedding, reference, stack
 from guard.chunking import Chunk, chunk, label
 from guard.drift import ToolCall
 from guard.reference import MIN_TABLE, Reference, chunk_class, table
@@ -136,24 +136,159 @@ def build(cases: list[Case], model: str) -> Reference:
     return ref
 
 
-def score_cases(
-    cases: list[Case], model: str
-) -> list[tuple[Case, list[float], list[float | None]]]:
+@dataclass
+class Scored:
+    """Una salida de validación con lo que necesita cada método."""
+
+    case: Case
+    classes: list[str]
+    attack: list[float]
+    refs: list[drift.Percentiles]
+    comb: list[tuple[float, int] | None]  # (1 − m^k, k) antes de la tabla final
+
+
+def score_cases(cases: list[Case], model: str) -> list[Scored]:
     ref = reference.load(model)
     out = []
     for c in cases:
-        v = embedding.center(
+        c.vectors = embedding.center(
             embedding.raw([ch.text for ch in c.chunks], model), ref.mean
         )
-        c.vectors = v
+        refs = drift.percentiles(c.chunks, c.vectors, c.task, c.tool, model)
         out.append(
-            (
+            Scored(
                 c,
-                attack.score(c.chunks, v, model),
-                drift.score(c.chunks, v, c.task, c.tool, model),
+                [chunk_class(ch) for ch in c.chunks],
+                attack.score(c.chunks, c.vectors, model),
+                refs,
+                [drift.combine(list(p.values())) for p in refs],
             )
         )
     return out
+
+
+def k_tables(scored: list[Scored]) -> dict[str, np.ndarray]:
+    """Tabla final del desvío por k, con los trozos legítimos de estas salidas."""
+    per_k: dict[str, list[float]] = defaultdict(list)
+    for s in scored:
+        for lab, comb in zip(s.case.labels, s.comb, strict=True):
+            if lab == "benign" and comb is not None:
+                per_k[f"drift/k{comb[1]}"].append(comb[0])
+    return {k: table(np.array(v)) for k, v in per_k.items()}
+
+
+def drift_with(s: Scored, tables: dict[str, np.ndarray]) -> list[float | None]:
+    out: list[float | None] = []
+    for comb in s.comb:
+        if comb is None:
+            out.append(None)
+        else:
+            t = tables.get(f"drift/k{comb[1]}")
+            out.append(
+                comb[0] if t is None else min(reference.percentile_in(t, comb[0]), 1.0)
+            )
+    return out
+
+
+def rates(flags: list[tuple[Case, list[bool]]]) -> tuple[float, float]:
+    """(salidas atacadas atrapadas con un trozo de ataque, salidas legítimas tocadas)."""
+    caught = [
+        any(f and lab == "attack" for f, lab in zip(F, c.labels))
+        for c, F in flags
+        if c.attacked
+    ]
+    fp = [any(F) for c, F in flags if not c.attacked]
+    return float(np.mean(caught)), float(np.mean(fp))
+
+
+# ---------------------------------------------------------------- métodos
+# Cada uno se ajusta con unas salidas (fit) y devuelve cómo marcar otras (flag).
+
+
+def rule_method(tables_from: str):
+    """Regla de dos umbrales; la tabla final del desvío sale de train o de estas salidas."""
+
+    def fit(scored: list[Scored], train_tables: dict[str, np.ndarray]):
+        tables = train_tables if tables_from == "train" else k_tables(scored)
+        rows = [(s.case, s.attack, drift_with(s, tables)) for s in scored]
+        t, _, _ = grid(rows)
+
+        def flag(s: Scored) -> list[bool]:
+            return [
+                decision.flags(a, d, t) for a, d in zip(s.attack, drift_with(s, tables))
+            ]
+
+        return flag, {"thresholds": t, "tables": tables}
+
+    return fit
+
+
+def attack_only(scored: list[Scored], train_tables: dict[str, np.ndarray]):
+    t, _, _ = grid([(s.case, s.attack, [None] * len(s.attack)) for s in scored])
+
+    def flag(s: Scored) -> list[bool]:
+        return [a >= t["tau_high"] for a in s.attack]
+
+    return flag, {"thresholds": t}
+
+
+def stack_method(scored: list[Scored], train_tables: dict[str, np.ndarray]):
+    xs, ys = [], []
+    for s in scored:
+        x = stack.features(s.classes, s.attack, s.refs)
+        for row, lab in zip(x, s.case.labels):
+            if lab is not None:
+                xs.append(row)
+                ys.append(1.0 if lab == "attack" else 0.0)
+    w = stack.fit(np.array(xs), np.array(ys))
+    risk = {
+        id(s): stack.predict(stack.features(s.classes, s.attack, s.refs), w)
+        for s in scored
+    }
+    out_max = [
+        float(risk[id(s)].max(initial=0.0)) for s in scored if not s.case.attacked
+    ]
+    best = (-1.0, 1.0, 1.0)
+    for q in (0.9, 0.92, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 1.0):
+        tau = float(np.quantile(out_max, q))
+        caught, fp = rates([(s.case, list(risk[id(s)] >= tau)) for s in scored])
+        if fp <= MAX_FP_OUTPUTS and (caught, -fp) > (best[0], -best[1]):
+            best = (caught, fp, tau)
+    tau = best[2]
+
+    def flag(s: Scored) -> list[bool]:
+        return list(
+            stack.predict(stack.features(s.classes, s.attack, s.refs), w) >= tau
+        )
+
+    return flag, {"tau_stack": tau, "weights": w}
+
+
+METHODS = {
+    "solo ataque": attack_only,
+    "regla, tabla k de train": rule_method("train"),
+    "regla, tabla k de val": rule_method("val"),
+    "logística": stack_method,
+}
+
+
+def compare(
+    scored: list[Scored], train_tables: dict[str, np.ndarray]
+) -> dict[str, tuple[float, float]]:
+    """Validación cruzada en dos mitades: se ajusta en una y se mide en la otra."""
+    rng = np.random.default_rng(0)
+    order = rng.permutation(len(scored))
+    halves = [[scored[i] for i in order[0::2]], [scored[i] for i in order[1::2]]]
+    results: dict[str, tuple[float, float]] = {}
+    for name, fit in METHODS.items():
+        caught, fp = [], []
+        for a, b in ((0, 1), (1, 0)):
+            flag, _ = fit(halves[a], train_tables)
+            c, f = rates([(s.case, flag(s)) for s in halves[b]])
+            caught.append(c)
+            fp.append(f)
+        results[name] = (float(np.mean(caught)), float(np.mean(fp)))
+    return results
 
 
 def auc(pos: list[float], neg: list[float]) -> float:
@@ -207,42 +342,29 @@ def grid(scored: list) -> tuple[dict[str, float], float, float]:
     return best[2], best[0], best[1]
 
 
-def report(scored: list, model: str) -> None:
+def report(scored: list[Scored]) -> None:
     rng = np.random.default_rng(0)
-    benign_vecs = np.array(
+    benign = np.array(
         [
-            c.vectors[i]
-            for c, _, _ in scored
-            for i, lab in enumerate(c.labels)
+            s.case.vectors[i]
+            for s in scored
+            for i, lab in enumerate(s.case.labels)
             if lab == "benign"
         ]
     )
-    idx = rng.integers(0, len(benign_vecs), size=(2000, 2))
-    print(
-        f"centrado: coseno promedio entre legítimos al azar = {np.mean(np.sum(benign_vecs[idx[:, 0]] * benign_vecs[idx[:, 1]], axis=1)):.3f}"
-    )
-
+    idx = rng.integers(0, len(benign), size=(2000, 2))
+    mean_cos = np.mean(np.sum(benign[idx[:, 0]] * benign[idx[:, 1]], axis=1))
+    print(f"centrado: coseno promedio entre legítimos al azar = {mean_cos:.3f}")
     per: dict[str, tuple[list[float], list[float]]] = defaultdict(lambda: ([], []))
-    deciles: dict[int, list[float]] = defaultdict(list)
-    for c, A, D in scored:
-        raws = drift.raw_cosines(c.chunks, c.vectors, c.task, c.tool, model)
-        for i, ch in enumerate(c.chunks):
-            lab = c.labels[i]
-            if lab is None:
-                continue
-            per[chunk_class(ch)][0 if lab == "attack" else 1].append(A[i])
-            if lab == "benign" and D[i] is not None:
-                k = sum(raws[r][i] is not None for r in drift.REFERENCES)
-                deciles[k].append(D[i])
+    for s in scored:
+        for cls, a, lab in zip(s.classes, s.attack, s.case.labels):
+            if lab is not None:
+                per[cls][0 if lab == "attack" else 1].append(a)
     print("separación (AUC del ataque por clase, en validación):")
     for cls, (pos, neg) in sorted(per.items()):
         print(
             f"  {cls:<12} AUC = {auc(pos, neg):.3f}   ataques {len(pos):>4}   legítimos {len(neg):>5}"
         )
-    print("calibración del desvío en legítimos (debería ser ~10 % por décimo):")
-    for k, v in sorted(deciles.items()):
-        h = np.histogram(v, bins=10, range=(0, 1))[0] / max(1, len(v))
-        print(f"  k={k}  n={len(v):>5}  " + " ".join(f"{x:.0%}".rjust(4) for x in h))
 
 
 def _data_version() -> str:
@@ -277,12 +399,33 @@ def main() -> None:
 
     val = load_cases(a.val)
     scored = score_cases(val, a.model)
-    report(scored, a.model)
-    t, caught, fp = grid(scored)
-    ref.thresholds = t
-    ref.save(reference.artifact_path(a.model))
+    report(scored)
+    train_tables = {k: v for k, v in ref.tables.items() if k.startswith("drift/k")}
+    results = compare(scored, train_tables)
     print(
-        f"umbrales: {t}  ->  salidas atacadas atrapadas {caught:.0%}, legítimas tocadas {fp:.0%}"
+        "métodos (ajustados en una mitad de validación, medidos en la otra; promedio de las dos):"
+    )
+    for name, (caught, fp) in results.items():
+        print(f"  {name:<26} atrapadas {caught:>4.0%}   legítimas tocadas {fp:>4.0%}")
+    ok = {n: r for n, r in results.items() if r[1] <= MAX_FP_OUTPUTS + 0.01}
+    chosen = max(ok or results, key=lambda n: (ok or results)[n][0])
+    print(f"elegido: {chosen}; se ajusta con toda la validación")
+
+    flag, fitted = METHODS[chosen](scored, train_tables)
+    ref.tables = {k: v for k, v in ref.tables.items() if not k.startswith("drift/k")}
+    ref.tables |= fitted.get("tables") or k_tables(scored)
+    ref.method = "stack" if chosen == "logística" else "rule"
+    ref.thresholds = dict(reference.DEFAULT_THRESHOLDS) | fitted.get("thresholds", {})
+    if chosen == "logística":
+        ref.thresholds["tau_stack"] = fitted["tau_stack"]
+        ref.stack = fitted["weights"]
+    elif chosen == "solo ataque":
+        ref.thresholds |= {"tau_low": 2.0, "tau_drift": 2.0}  # el desvío no decide
+    ref.save(reference.artifact_path(a.model))
+    reference.load.cache_clear()
+    caught, fp = rates([(s.case, flag(s)) for s in scored])
+    print(
+        f"en toda la validación (optimista): atrapadas {caught:.0%}, legítimas tocadas {fp:.0%}"
     )
 
     embedding._cache.clear()
