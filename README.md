@@ -5,7 +5,7 @@ Proyecto del Track 1 (seguridad de agentes) de la Hackathon AI Safety Colombia (
 **Visión:** un filtro rápido y determinista, basado en embeddings, que revisa lo que devuelven las herramientas (servidores MCP, APIs, documentos) y retira las instrucciones maliciosas escondidas **antes** de que entren a la ventana de contexto del LLM, sin descartar el resto de la información.
 
 **Funciones:**
-- `guard.check(texto, tarea)`: parte la salida en trozos, puntúa cada uno (cercanía a inyecciones y desvío de la tarea del usuario) y devuelve el texto saneado.
+- `guard.check(texto, tarea=None, origen="herramienta")`: parte la salida en trozos, puntúa cada uno (cercanía a inyecciones y desvío de la tarea del usuario) y devuelve el texto saneado.
 - Defensas para AgentDojo (`guard-detect`, `guard-sanitize`) evaluadas contra sin defensa, un filtro de palabras clave y el detector DeBERTa.
 
 ## Uso

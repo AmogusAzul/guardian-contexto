@@ -6,7 +6,13 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-# Se agregan en el bloque 1: sentence-transformers (Algoritmo), agentdojo (Integración).
+# El guardián real. Sin esto solo funciona el mock (GUARD_MOCK=1).
+# Torch para CPU: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+guard = ["numpy", "sentence-transformers", "model2vec"]
+# Se agrega en el bloque 1: agentdojo (Integración).
 
 [tool.setuptools]
 packages = ["guard"]
+
+[tool.setuptools.package-data]
+guard = ["artifacts/*.json"]
