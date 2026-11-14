@@ -64,6 +64,22 @@ def rebuild(doc: Document, flagged: Sequence[Chunk]) -> str:
     return _dump(doc.format, tree, doc, ())
 
 
+class _BlockDumper(yaml.SafeDumper):
+    """Strings de varias líneas como bloque `|`, como suelen venir, no entre comillas con \\n."""
+
+
+def _str(dumper: yaml.SafeDumper, s: str) -> yaml.ScalarNode:
+    style = (
+        "|"
+        if "\n" in s and not any(line != line.rstrip() for line in s.splitlines())
+        else None
+    )
+    return dumper.represent_scalar("tag:yaml.org,2002:str", s, style=style)
+
+
+_BlockDumper.add_representer(str, _str)
+
+
 def _redact(s: str, spans: list[tuple[int, int]]) -> str:
     """Une los spans que se tocan o que solo separa espacio, y pone un aviso por grupo."""
     merged: list[list[int]] = []
@@ -111,7 +127,9 @@ def _dump(fmt: Format, node: Any, doc: Document, path: Path) -> str:
     if fmt in ("json", "python"):
         return json.dumps(node, ensure_ascii=False)
     if fmt == "yaml":
-        return yaml.safe_dump(node, allow_unicode=True, sort_keys=False)
+        return yaml.dump(
+            node, Dumper=_BlockDumper, allow_unicode=True, sort_keys=False, width=10**9
+        )
     if fmt == "loose":  # editar el string original: cada valor en su lugar
         out = doc.sources.get(path, doc.original)
         for key, (a, b) in sorted(

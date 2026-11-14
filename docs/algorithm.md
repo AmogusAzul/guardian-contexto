@@ -24,7 +24,7 @@ Las salidas MCP y de AgentDojo son estructuras (JSON o YAML), no prosa. Se revis
 |---|---|---|
 | `json` | `json.loads` | Glaive |
 | `python` | `ast.literal_eval` (seguro: solo literales) | InjecAgent usa `{'a': 'b'}` |
-| `yaml` | `yaml.safe_load`, **solo si hay líneas con sangría o `- `** | AgentDojo. Sin esa regla, un chat `Nombre: mensaje` parsea como YAML y las claves repetidas se pisan: se pierden líneas, y con ellas un ataque |
+| `yaml` | `yaml.safe_load` con tres condiciones: **alguna línea con sangría o que empieza con `- `**; **sin claves repetidas** (PyYAML las pisa en silencio); y al menos la mitad de las claves **con forma de campo** (sin espacios). Una sola clave arriba (`emails:`) o una lista de un elemento valen | AgentDojo devuelve `yaml.safe_dump`. Las condiciones dejan como `text` a la prosa que también parsea como YAML: un chat `Nombre: mensaje` (claves repetidas: se perderían líneas, y con ellas un ataque) o un título seguido de viñetas |
 | `loose` | empieza con `{` o `[` pero no parsea: cortar en `'clave':` / `"clave":`, quitar comillas y llaves de cada valor, guardar sus posiciones | 45 casos: **la inyección rompió las comillas** del JSON |
 | `text` | todo lo demás | correos, chats, documentos |
 
@@ -162,7 +162,7 @@ Arma `guard/artifacts/<modelo>.npz` con `data/mcp_train.jsonl` (pasos 2 a 4), el
 - **`path`:** se sube desde el valor mientras el padre tenga un solo hijo, y se retira esa cadena entera. `do.not.tell…files` retira `do`; `emails[1].body` retira solo `body`. En un objeto se **borra la clave** (la clave puede ser el ataque); en una lista el elemento pasa a ser el aviso, para no mover los otros índices. Nunca se sube por encima de una raíz (la salida, un bloque MCP, un JSON dentro de un string).
 - **Copias:** un texto que aparece en varios lugares (por ejemplo `structuredContent` y el bloque `text` de MCP) se embebe una vez pero se retira en todos.
 - Spans marcados que se tocan, o que solo separa espacio, llevan un solo aviso.
-- `text` y `loose`: se reemplaza en las posiciones guardadas del string original, así el formato no cambia. `json`, `python` y `yaml`: se rearma la estructura y se vuelve a escribir (puede cambiar los espacios; `python` sale como JSON).
+- `text` y `loose`: se reemplaza en las posiciones guardadas del string original, así el formato no cambia. `json`, `python` y `yaml`: se rearma la estructura y se vuelve a escribir (puede cambiar los espacios; `python` sale como JSON; en `yaml` los strings de varias líneas salen como bloque `|` y no se parten líneas largas).
 - Un JSON que venía dentro de un string vuelve a ser string. En un resultado MCP, `structuredContent` y el bloque `text` quedan limpios por igual.
 
 ## Datos que necesita

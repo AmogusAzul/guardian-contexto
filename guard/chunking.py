@@ -1,7 +1,7 @@
 """Paso 1: parte una salida de herramienta en trozos de texto plano (docs/algorithm.md, "1. Trozos").
 
 Autocontenido: biblioteca estándar y PyYAML. Nada de embeddings aquí.
-Parsers en orden: json, python (ast.literal_eval), yaml (solo con sangría o "- "), loose, text.
+Parsers en orden: json, python (ast.literal_eval), yaml (ver _yaml), loose, text.
 
 Para ver los trozos de los casos de data/ y cuáles son la inyección: guard/show_chunks.py.
 """
@@ -88,20 +88,74 @@ def _parse(s: str) -> tuple[Format, Any, dict[str, tuple[int, int]]]:
                 return "python", v, {}
         except (ValueError, SyntaxError, MemoryError, RecursionError):
             pass
-    # Solo YAML de verdad: un chat "Nombre: mensaje" también parsea como YAML y las
-    # claves repetidas se pisan (se pierden líneas, y con ellas un ataque).
-    if any(line.startswith((" ", "\t", "- ")) for line in t.splitlines()[1:]):
-        try:
-            v = yaml.safe_load(t)
-            if isinstance(v, (dict, list)) and len(v) >= 2:
-                return "yaml", v, {}
-        except yaml.YAMLError:
-            pass
+    v = _yaml(t)
+    if v is not None:
+        return "yaml", v, {}
     if t[:1] in "{[":
         tree, spans = _loose(s)
         if tree:
             return "loose", tree, spans
     return "text", s, {}
+
+
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader que falla con claves repetidas: PyYAML las pisa en silencio."""
+
+
+def _no_duplicates(
+    loader: _StrictLoader, node: yaml.MappingNode, deep: bool = False
+) -> Any:
+    keys = [loader.construct_object(k, deep=deep) for k, _ in node.value]
+    if len(keys) != len({repr(k) for k in keys}):
+        raise yaml.constructor.ConstructorError(
+            None, None, "clave repetida", node.start_mark
+        )
+    return loader.construct_mapping(node, deep=deep)
+
+
+_StrictLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates
+)
+_IDENTIFIER = re.compile(r"^[\w.-]+$")
+
+
+def _yaml(t: str) -> dict | list | None:
+    """YAML de verdad (el de yaml.safe_dump, como en AgentDojo), o None si es prosa.
+
+    - Tiene estructura: alguna línea con sangría o que empieza con "- " (también la primera).
+    - Sin claves repetidas: un chat "Nombre: mensaje" parsea como YAML y las claves repetidas
+      se pisan, perdiendo líneas (y con ellas un ataque).
+    - Claves con forma de campo (sin espacios), al menos la mitad: "Lista de compras:" seguida
+      de viñetas es prosa, no datos.
+    Una sola clave arriba o una lista de un elemento sí valen: `{"emails": [...]}` es lo común.
+    """
+    lines = t.splitlines()
+    if not any(
+        line.startswith((" ", "\t", "- ")) for line in lines[1:]
+    ) and not t.startswith("- "):
+        return None
+    try:
+        v = yaml.load(
+            t, Loader=_StrictLoader
+        )  # SafeLoader: solo datos, nada se ejecuta
+    except yaml.YAMLError:
+        return None
+    if not isinstance(v, (dict, list)) or not v:
+        return None
+    keys = list(_keys(v))
+    if keys and sum(bool(_IDENTIFIER.match(str(k))) for k in keys) * 2 < len(keys):
+        return None
+    return v
+
+
+def _keys(node: Any):
+    if isinstance(node, dict):
+        for k, val in node.items():
+            yield k
+            yield from _keys(val)
+    elif isinstance(node, list):
+        for val in node:
+            yield from _keys(val)
 
 
 def _loose(s: str) -> tuple[dict[str, str], dict[str, tuple[int, int]]]:
