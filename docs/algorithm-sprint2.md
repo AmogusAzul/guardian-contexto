@@ -51,7 +51,7 @@ Trozos que le hablan al modelo (“Assistant:”, “AI, please…”, “Before
 
 ## 7. Pendiente para cerrar la versión 1
 
-- **¿Decide el desvío?** Hoy decide solo el ataque. Se resuelve con la comparación a la misma tasa de legítimas tocadas (rama `algo-polish`).
+- **Estrategia de clasificación:** la versión 1 decide solo con el ataque y no calcula el desvío. En la versión 2 se decide si entra el desvío (regla o logística) con la comparación a la misma tasa de legítimas tocadas (rama `algo-polish`).
 - **Datos nuevos de `branch-data`:** descripciones de herramientas en los casos MCP, texto inyectado marcado en los CSV y el corpus en YAML. Al entrar, reentrenar; la referencia “llamada” del desvío debe usar los mismos campos al calibrar y en ejecución.
 - **`origen="manifiesto"`:** hoy se trata como una salida de herramienta. Falta su referencia de desvío (el nombre de la herramienta y sus parámetros).
 

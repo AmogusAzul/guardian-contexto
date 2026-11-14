@@ -161,7 +161,7 @@ retirar si  attack ≥ τ_alto
 | Regla, tabla final del desvío de validación | la regla de arriba | 78 % | 10 % |
 | Logística (`stack.py`) | una regresión logística sobre los percentiles (ataque, pedido, llamada, vecinos) y la clase del trozo, con un solo umbral | 84 % | 7 % |
 
-Se elige el que mejor separa y se reajusta con toda la validación; el método y sus umbrales quedan en el archivo de referencia (`method`). **Versión 1: solo ataque** (`τ_alto = 0,9936`): es el único que se mantiene en 5 % de legítimas tocadas en la otra mitad. El desvío se calcula y sale en `info`, pero todavía no decide. Las otras atrapan más pero se pasan del 5 % al cambiar de mitad; la comparación a la misma tasa de legítimas tocadas está en curso.
+Se elige el que mejor separa y se reajusta con toda la validación; el método y sus umbrales quedan en el archivo de referencia (`method`). **Versión 1: solo ataque** (`τ_alto = 0,9936`): es el único que se mantiene en 5 % de legítimas tocadas en la otra mitad. **En la versión 1 el desvío no se usa:** `check()` no lo calcula (`drift_score` es `None`) y la regla queda en `attack ≥ τ_alto`. Las otras formas atrapan más pero se pasan del 5 % al cambiar de mitad; la estrategia de clasificación se revisa en la versión 2 ([algorithm-sprint2.md](algorithm-sprint2.md)). `drift.py`, `stack.py` y la comparación de `guard.train` se quedan para eso.
 
 `check()` de punta a punta en `data/mcp_val.jsonl` con esa versión: 93 de 111 inyecciones retiradas, 5 de 111 salidas legítimas tocadas, latencia mediana 97 ms (p95 293 ms) después de la primera llamada, que carga el modelo (unos 15 s).
 
