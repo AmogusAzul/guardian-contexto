@@ -146,7 +146,13 @@ def construir(defensa: str, llm: BasePipelineElement, modelo: str):
             system_message_name=None, system_message=None,
         )
         p, det = AgentPipeline.from_config(cfg), None
-    p.name = f"{modelo}-{defensa}"
+    # Los ataques (important_instructions) buscan en el nombre del pipeline un modelo conocido por
+    # AgentDojo para dirigirse a él ("GPT-4"…). Un modelo local (Qwen en Ollama/vLLM) no está en esa
+    # lista y el ataque falla: "local" lo hace dirigirse a "Local model".
+    from agentdojo.models import MODEL_NAMES
+
+    conocido = any(nombre in modelo for nombre in MODEL_NAMES)
+    p.name = f"{modelo}-{defensa}" if conocido else f"{modelo}-local-{defensa}"
     return p, det
 
 

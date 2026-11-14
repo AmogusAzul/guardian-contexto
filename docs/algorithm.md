@@ -1,5 +1,7 @@
 # El algoritmo
 
+**Estado: versión 1 terminada** (decide solo con el ataque; el desvío queda para la versión 2). Falta reentrenar con los datos de banca pedidos a Datos ([data-banking-negatives.md](data-banking-negatives.md)) y congelar antes de las pruebas ([run-numbers.md](run-numbers.md)).
+
 Dueño: **Algoritmo**. Código en `guard/`, un módulo por paso. Contrato en [architecture.md](architecture.md#contrato-1-check). Ajustes para después: [algorithm-sprint2.md](algorithm-sprint2.md).
 
 ```
