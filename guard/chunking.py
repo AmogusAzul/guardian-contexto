@@ -126,7 +126,14 @@ def _loose(s: str) -> tuple[dict[str, str], dict[str, tuple[int, int]]]:
 
 _ZERO_WIDTH = re.compile("[\u200b-\u200f\u2060\ufeff]")
 _BLOCK = re.compile(r"\n[ \t]*-{3,}[ \t]*\n|\n[ \t]*\n")
-_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'(<#\[])")
+# Cortes dentro de una línea. Además del fin de oración, cortes genéricos donde un texto pegado
+# sin punto suele empezar algo nuevo (en data/, ahí venían inyecciones pegadas a texto legítimo):
+_SENTENCE = re.compile(
+    r"(?<=[.!?])\s+(?=[A-Z\"'(<#\[>—])"  # fin de oración (también antes de "> cita" y "— firma")
+    r"|\s+(?=<[a-zA-Z/!])"  # antes de una etiqueta o comentario HTML
+    r"|\s+(?=\[//\]:)"  # antes de un comentario de markdown
+    r"|(?<=,)\s+(?=[A-Z][a-z]+\s)"  # coma y una cláusula que empieza con mayúscula
+)
 _HTML_TAG = re.compile(r"</?[a-zA-Z][^<>]{0,200}>")  # no toca <|system|>
 _ABBREV = re.compile(
     r"\b(?:Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr|Inc|Ltd|Co|vs|etc|e\.g|i\.e|No|Fig)\.$"
