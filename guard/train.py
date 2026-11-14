@@ -32,6 +32,19 @@ from guard.reference import MIN_TABLE, Reference, chunk_class, table
 MAX_FP_OUTPUTS = 0.05  # a lo más 5 % de salidas legítimas tocadas
 
 
+def fp_budget(n_legit: int, new_outputs: bool) -> float:
+    """Fracción de legítimas que el umbral puede tocar en las salidas donde se elige.
+
+    Para salidas nuevas (`new_outputs`): con n legítimas, un corte que toca k de ellas toca en
+    promedio (k + 1)/(n + 1) de las nuevas (conformal), así que k es el mayor con
+    (k + 1)/(n + 1) ≤ 5 %. Con 111 legítimas permite 4 en vez de 5. Para medir a la misma tasa
+    en las mismas salidas (lectura 2 de compare) basta el 5 %."""
+    if not new_outputs or n_legit == 0:
+        return MAX_FP_OUTPUTS
+    k = max(0, int(np.floor(MAX_FP_OUTPUTS * (n_legit + 1) + 1e-9)) - 1)
+    return k / n_legit + 1e-12
+
+
 @dataclass
 class Case:
     source: str
@@ -206,17 +219,20 @@ def rates(flags: list[tuple[Case, list[bool]]]) -> tuple[float, float]:
 # (por defecto las mismas salidas). Devuelve cómo marcar otras salidas (flag) y lo ajustado.
 
 
-def best_single(scored: list[Scored], risk: Callable[[Scored], np.ndarray]) -> float:
-    """Umbral único que más salidas atacadas atrapa con a lo más 5 % de legítimas tocadas.
+def best_single(
+    scored: list[Scored], risk: Callable[[Scored], np.ndarray], new_outputs: bool = True
+) -> float:
+    """Umbral único que más salidas atacadas atrapa dentro del presupuesto de fp_budget.
 
     Candidatos: justo por encima del máximo de cada salida legítima (el corte exacto)."""
     rs = [(s, risk(s)) for s in scored]
+    budget = fp_budget(sum(not s.case.attacked for s in scored), new_outputs)
     out_max = sorted({float(r.max(initial=0.0)) for s, r in rs if not s.case.attacked})
     best = (-1.0, 1.0, above(out_max[-1]) if out_max else 1.0)
     for m in out_max:
         tau = above(m)
         caught, fp = rates([(s.case, list(r >= tau)) for s, r in rs])
-        if fp <= MAX_FP_OUTPUTS and (caught, -fp) > (best[0], -best[1]):
+        if fp <= budget and (caught, -fp) > (best[0], -best[1]):
             best = (caught, fp, tau)
     return float(best[2])
 
@@ -231,7 +247,7 @@ def rule_method(tables_from: str):
     ):
         tables = train_tables if tables_from == "train" else k_tables(scored)
         rows = [(s.case, s.attack, drift_with(s, tables)) for s in tune or scored]
-        t, _, _ = grid(rows)
+        t, _, _ = grid(rows, new_outputs=tune is None)
 
         def flag(s: Scored) -> list[bool]:
             return [
@@ -248,7 +264,9 @@ def attack_only(
     train_tables: dict[str, np.ndarray],
     tune: list[Scored] | None = None,
 ):
-    tau = best_single(tune or scored, lambda s: np.array(s.attack))
+    tau = best_single(
+        tune or scored, lambda s: np.array(s.attack), new_outputs=tune is None
+    )
 
     def flag(s: Scored) -> list[bool]:
         return [a >= tau for a in s.attack]
@@ -273,7 +291,7 @@ def stack_method(
     def risk(s: Scored) -> np.ndarray:
         return stack.predict(stack.features(s.case.chunks, s.attack, s.refs), w)
 
-    tau = best_single(tune or scored, risk)
+    tau = best_single(tune or scored, risk, new_outputs=tune is None)
 
     def flag(s: Scored) -> list[bool]:
         return list(risk(s) >= tau)
@@ -291,36 +309,37 @@ METHODS = {
 Rates = tuple[float, float]
 
 
-def halves(scored: list[Scored]) -> list[list[Scored]]:
-    """Dos mitades al azar (semilla fija) de las salidas de validación."""
-    order = np.random.default_rng(0).permutation(len(scored))
+def halves(scored: list[Scored], seed: int = 0) -> list[list[Scored]]:
+    """Dos mitades al azar de las salidas de validación."""
+    order = np.random.default_rng(seed).permutation(len(scored))
     return [[scored[i] for i in order[0::2]], [scored[i] for i in order[1::2]]]
 
 
 def compare(
-    scored: list[Scored], train_tables: dict[str, np.ndarray]
-) -> dict[str, tuple[Rates, Rates]]:
-    """Validación cruzada en dos mitades, con dos lecturas (promedio de las dos vueltas).
+    scored: list[Scored], train_tables: dict[str, np.ndarray], splits: int = 1
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Validación cruzada en dos mitades, con dos lecturas, sobre `splits` particiones al azar.
 
     1. Todo en A (piezas y umbrales), medido en B: lo que pasaría en ejecución.
     2. Piezas en A, umbrales elegidos en B y medido en B: todos los métodos quedan a lo más
        en 5 % de legítimas tocadas, así se comparan a la misma tasa. Es la lectura que elige.
-    La diferencia entre las dos es lo que se pierde al trasladar el umbral.
+    La diferencia entre las dos es lo que se pierde al trasladar el umbral. Devuelve, por
+    método y lectura, una fila (atrapadas, tocadas) por partición, promedio de las dos vueltas.
     """
-    hs = halves(scored)
-    results: dict[str, tuple[Rates, Rates]] = {}
+    results: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for name, fit in METHODS.items():
         r1, r2 = [], []
-        for a, b in ((0, 1), (1, 0)):
-            flag, _ = fit(hs[a], train_tables)
-            r1.append(rates([(s.case, flag(s)) for s in hs[b]]))
-            flag, _ = fit(hs[a], train_tables, tune=hs[b])
-            r2.append(rates([(s.case, flag(s)) for s in hs[b]]))
-        m1, m2 = np.mean(r1, axis=0), np.mean(r2, axis=0)
-        results[name] = (
-            (float(m1[0]), float(m1[1])),
-            (float(m2[0]), float(m2[1])),
-        )
+        for seed in range(splits):
+            hs = halves(scored, seed)
+            a1, a2 = [], []
+            for a, b in ((0, 1), (1, 0)):
+                flag, _ = fit(hs[a], train_tables)
+                a1.append(rates([(s.case, flag(s)) for s in hs[b]]))
+                flag, _ = fit(hs[a], train_tables, tune=hs[b])
+                a2.append(rates([(s.case, flag(s)) for s in hs[b]]))
+            r1.append(np.mean(a1, axis=0))
+            r2.append(np.mean(a2, axis=0))
+        results[name] = (np.array(r1), np.array(r2))
     return results
 
 
@@ -339,8 +358,10 @@ def above(x: float) -> float:
     return float(np.nextafter(float(x), np.inf))
 
 
-def grid(scored: list) -> tuple[dict[str, float], float, float]:
-    """Umbrales que más salidas atacadas atrapan con a lo más 5 % de salidas legítimas tocadas."""
+def grid(
+    scored: list, new_outputs: bool = True
+) -> tuple[dict[str, float], float, float]:
+    """Umbrales que más salidas atacadas atrapan dentro del presupuesto de fp_budget."""
     best: tuple[float, float, dict[str, float]] = (
         -1.0,
         1.0,
@@ -348,6 +369,7 @@ def grid(scored: list) -> tuple[dict[str, float], float, float]:
     )
     benign = [s for s in scored if not s[0].attacked]
     attacked = [s for s in scored if s[0].attacked]
+    budget = fp_budget(len(benign), new_outputs)
     # Candidatos sacados de los mismos datos: el máximo de ataque de las salidas legítimas
     # (tau_high), el ataque de los trozos legítimos (tau_low) y valores fijos de desvío.
     out_max = [max(A, default=0.0) for _, A, _ in benign]
@@ -381,7 +403,7 @@ def grid(scored: list) -> tuple[dict[str, float], float, float]:
                 for c, A, D in attacked
             ]
         )
-        if fp <= MAX_FP_OUTPUTS and (caught, -fp) > (best[0], -best[1]):
+        if fp <= budget and (caught, -fp) > (best[0], -best[1]):
             best = (float(caught), float(fp), t)
     return best[2], best[0], best[1]
 
@@ -431,6 +453,9 @@ def main() -> None:
     ap.add_argument("--train", type=Path, default=Path("data/mcp_train.jsonl"))
     ap.add_argument("--val", type=Path, default=Path("data/mcp_val.jsonl"))
     ap.add_argument("--model", default=embedding.MODEL)
+    ap.add_argument(
+        "--splits", type=int, default=10, help="particiones al azar de validación"
+    )
     a = ap.parse_args()
 
     t0 = time.perf_counter()
@@ -445,21 +470,23 @@ def main() -> None:
     scored = score_cases(val, a.model)
     report(scored)
     train_tables = {k: v for k, v in ref.tables.items() if k.startswith("drift/k")}
-    results = compare(scored, train_tables)
+    results = compare(scored, train_tables, a.splits)
     n = len(halves(scored)[0])
     print(
-        f"métodos (validación cruzada en dos mitades de ~{n} salidas; promedio de las dos):"
+        f"métodos (dos mitades de ~{n} salidas, la mitad legítimas; {a.splits} particiones; promedio ± desviación):"
     )
     print(
-        f"  {'':<26} {'umbral de A, medido en B':>26}   {'umbral de B (misma tasa)':>26}   traslado"
+        f"  {'':<24} {'umbral de A, medido en B':>32}   {'umbral de B (misma tasa)':>32}   traslado"
     )
-    for name, ((c1, f1), (c2, f2)) in results.items():
-        print(
-            f"  {name:<26} atrapadas {c1:>4.0%} tocadas {f1:>4.0%}"
-            f"   atrapadas {c2:>4.0%} tocadas {f2:>4.0%}"
-            f"   {c1 - c2:+.0%} / {f1 - f2:+.0%}"
-        )
-    chosen = max(results, key=lambda n: results[n][1][0])
+
+    def cell(r: np.ndarray) -> str:
+        (c, f), (sc, sf) = r.mean(axis=0), r.std(axis=0)
+        return f"atrapadas {c:4.0%} ±{sc:3.0%} tocadas {f:3.0%} ±{sf:3.0%}"
+
+    for name, (r1, r2) in results.items():
+        gap = r1.mean(axis=0) - r2.mean(axis=0)
+        print(f"  {name:<24} {cell(r1)}   {cell(r2)}   {gap[0]:+.0%} / {gap[1]:+.0%}")
+    chosen = max(results, key=lambda n: results[n][1][:, 0].mean())
     print(f"elegido (a la misma tasa): {chosen}; se ajusta con toda la validación")
 
     flag, fitted = METHODS[chosen](scored, train_tables)
