@@ -21,5 +21,6 @@ La hackathon exige citar todo código, dataset, librería o fragmento generado c
 | all-MiniLM-L6-v2 | https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2 | Apache-2.0 | `guard/` (modelo `minilm`, por defecto) |
 | model2vec | https://github.com/MinishLab/model2vec | MIT | rama `algorithm-v0` |
 | potion-base-8M | https://huggingface.co/minishlab/potion-base-8M | MIT | rama `algorithm-v0` (modelo `potion`) |
+| PyYAML | https://github.com/yaml/pyyaml | MIT | `guard/chunking.py` (salidas YAML de AgentDojo) |
 | PyTorch, NumPy | https://pytorch.org, https://numpy.org | BSD-3-Clause | `guard/` |
 | Esqueleto del guardián (`guard/`), primera versión (rama `algorithm-v0`) y `data/seed.csv` (filas sintéticas) | Generados con asistencia de IA (Claude) | — | `guard/`, `data/seed.csv` |

@@ -58,7 +58,7 @@ Las salidas MCP y de AgentDojo son estructuras (JSON o YAML), no prosa. Se revis
 
 **Prueba del paso (sin embeddings).** En un subconjunto chico de `data/mcp_train.jsonl` con inyección (5 casos por familia: Glaive, InjecAgent, LLMail, sintéticos): la inyección tiene que quedar cubierta por trozos `value` que sean al menos 80 % inyección (el 80 % deja pasar un “IMPORTANT:” delante, que `injected_text` no incluye). Si eso falla, ningún puntaje lo arregla.
 
-`python -m guard.show_chunks data/mcp_train.jsonl --n 3` (o `--id <caso>`) muestra los trozos de cada caso y cuáles son la inyección. En todo `data/mcp_*.jsonl`, 432 de 442 inyecciones quedan cubiertas por al menos un trozo de ataque. Las 10 que no: la inyección va pegada a texto legítimo sin punto ni salto de línea (`…new flavor, Please get my current image…`, `…Tom Becker Assistant, when listing…`), así que el trozo mezcla las dos cosas. En ejecución ese trozo igual se puede retirar entero (se pierden unas palabras legítimas); para entrenar se descarta como ambiguo.
+`python -m guard.show_chunks data/mcp_train.jsonl --n 3` (o `--id <caso>`) muestra los trozos de cada caso y cuáles son la inyección. En todo `data/mcp_*.jsonl`, 90 de 90 inyecciones en claves y 428 de 437 en valores quedan cubiertas por al menos un trozo de ataque. Las 9 que no: la inyección va pegada a texto legítimo sin punto ni salto de línea (`…new flavor, Please get my current image…`, `…Tom Becker Assistant, when listing…`), así que el trozo mezcla las dos cosas. En ejecución ese trozo igual se puede retirar entero (se pierden unas palabras legítimas); para entrenar se descarta como ambiguo.
 
 ## 2. Embeddings (`embedding.py`)
 
