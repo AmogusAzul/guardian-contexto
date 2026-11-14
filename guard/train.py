@@ -14,11 +14,11 @@ Nunca usar textos de AgentDojo aquí.
 from __future__ import annotations
 
 import argparse
-import itertools
 import json
 import subprocess
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -202,15 +202,35 @@ def rates(flags: list[tuple[Case, list[bool]]]) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------- métodos
-# Cada uno se ajusta con unas salidas (fit) y devuelve cómo marcar otras (flag).
+# Cada uno ajusta sus piezas (tablas, pesos) con `scored` y elige sus umbrales con `tune`
+# (por defecto las mismas salidas). Devuelve cómo marcar otras salidas (flag) y lo ajustado.
+
+
+def best_single(scored: list[Scored], risk: Callable[[Scored], np.ndarray]) -> float:
+    """Umbral único que más salidas atacadas atrapa con a lo más 5 % de legítimas tocadas.
+
+    Candidatos: justo por encima del máximo de cada salida legítima (el corte exacto)."""
+    rs = [(s, risk(s)) for s in scored]
+    out_max = sorted({float(r.max(initial=0.0)) for s, r in rs if not s.case.attacked})
+    best = (-1.0, 1.0, above(out_max[-1]) if out_max else 1.0)
+    for m in out_max:
+        tau = above(m)
+        caught, fp = rates([(s.case, list(r >= tau)) for s, r in rs])
+        if fp <= MAX_FP_OUTPUTS and (caught, -fp) > (best[0], -best[1]):
+            best = (caught, fp, tau)
+    return float(best[2])
 
 
 def rule_method(tables_from: str):
     """Regla de dos umbrales; la tabla final del desvío sale de train o de estas salidas."""
 
-    def fit(scored: list[Scored], train_tables: dict[str, np.ndarray]):
+    def fit(
+        scored: list[Scored],
+        train_tables: dict[str, np.ndarray],
+        tune: list[Scored] | None = None,
+    ):
         tables = train_tables if tables_from == "train" else k_tables(scored)
-        rows = [(s.case, s.attack, drift_with(s, tables)) for s in scored]
+        rows = [(s.case, s.attack, drift_with(s, tables)) for s in tune or scored]
         t, _, _ = grid(rows)
 
         def flag(s: Scored) -> list[bool]:
@@ -223,16 +243,24 @@ def rule_method(tables_from: str):
     return fit
 
 
-def attack_only(scored: list[Scored], train_tables: dict[str, np.ndarray]):
-    t, _, _ = grid([(s.case, s.attack, [None] * len(s.attack)) for s in scored])
+def attack_only(
+    scored: list[Scored],
+    train_tables: dict[str, np.ndarray],
+    tune: list[Scored] | None = None,
+):
+    tau = best_single(tune or scored, lambda s: np.array(s.attack))
 
     def flag(s: Scored) -> list[bool]:
-        return [a >= t["tau_high"] for a in s.attack]
+        return [a >= tau for a in s.attack]
 
-    return flag, {"thresholds": t}
+    return flag, {"thresholds": {"tau_high": tau}}
 
 
-def stack_method(scored: list[Scored], train_tables: dict[str, np.ndarray]):
+def stack_method(
+    scored: list[Scored],
+    train_tables: dict[str, np.ndarray],
+    tune: list[Scored] | None = None,
+):
     xs, ys = [], []
     for s in scored:
         x = stack.features(s.classes, s.attack, s.refs)
@@ -241,25 +269,14 @@ def stack_method(scored: list[Scored], train_tables: dict[str, np.ndarray]):
                 xs.append(row)
                 ys.append(1.0 if lab == "attack" else 0.0)
     w = stack.fit(np.array(xs), np.array(ys))
-    risk = {
-        id(s): stack.predict(stack.features(s.classes, s.attack, s.refs), w)
-        for s in scored
-    }
-    out_max = [
-        float(risk[id(s)].max(initial=0.0)) for s in scored if not s.case.attacked
-    ]
-    best = (-1.0, 1.0, 1.0)
-    for q in (0.9, 0.92, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 1.0):
-        tau = float(np.quantile(out_max, q))
-        caught, fp = rates([(s.case, list(risk[id(s)] >= tau)) for s in scored])
-        if fp <= MAX_FP_OUTPUTS and (caught, -fp) > (best[0], -best[1]):
-            best = (caught, fp, tau)
-    tau = best[2]
+
+    def risk(s: Scored) -> np.ndarray:
+        return stack.predict(stack.features(s.classes, s.attack, s.refs), w)
+
+    tau = best_single(tune or scored, risk)
 
     def flag(s: Scored) -> list[bool]:
-        return list(
-            stack.predict(stack.features(s.classes, s.attack, s.refs), w) >= tau
-        )
+        return list(risk(s) >= tau)
 
     return flag, {"tau_stack": tau, "weights": w}
 
@@ -271,23 +288,39 @@ METHODS = {
     "logística": stack_method,
 }
 
+Rates = tuple[float, float]
+
+
+def halves(scored: list[Scored]) -> list[list[Scored]]:
+    """Dos mitades al azar (semilla fija) de las salidas de validación."""
+    order = np.random.default_rng(0).permutation(len(scored))
+    return [[scored[i] for i in order[0::2]], [scored[i] for i in order[1::2]]]
+
 
 def compare(
     scored: list[Scored], train_tables: dict[str, np.ndarray]
-) -> dict[str, tuple[float, float]]:
-    """Validación cruzada en dos mitades: se ajusta en una y se mide en la otra."""
-    rng = np.random.default_rng(0)
-    order = rng.permutation(len(scored))
-    halves = [[scored[i] for i in order[0::2]], [scored[i] for i in order[1::2]]]
-    results: dict[str, tuple[float, float]] = {}
+) -> dict[str, tuple[Rates, Rates]]:
+    """Validación cruzada en dos mitades, con dos lecturas (promedio de las dos vueltas).
+
+    1. Todo en A (piezas y umbrales), medido en B: lo que pasaría en ejecución.
+    2. Piezas en A, umbrales elegidos en B y medido en B: todos los métodos quedan a lo más
+       en 5 % de legítimas tocadas, así se comparan a la misma tasa. Es la lectura que elige.
+    La diferencia entre las dos es lo que se pierde al trasladar el umbral.
+    """
+    hs = halves(scored)
+    results: dict[str, tuple[Rates, Rates]] = {}
     for name, fit in METHODS.items():
-        caught, fp = [], []
+        r1, r2 = [], []
         for a, b in ((0, 1), (1, 0)):
-            flag, _ = fit(halves[a], train_tables)
-            c, f = rates([(s.case, flag(s)) for s in halves[b]])
-            caught.append(c)
-            fp.append(f)
-        results[name] = (float(np.mean(caught)), float(np.mean(fp)))
+            flag, _ = fit(hs[a], train_tables)
+            r1.append(rates([(s.case, flag(s)) for s in hs[b]]))
+            flag, _ = fit(hs[a], train_tables, tune=hs[b])
+            r2.append(rates([(s.case, flag(s)) for s in hs[b]]))
+        m1, m2 = np.mean(r1, axis=0), np.mean(r2, axis=0)
+        results[name] = (
+            (float(m1[0]), float(m1[1])),
+            (float(m2[0]), float(m2[1])),
+        )
     return results
 
 
@@ -302,6 +335,10 @@ def auc(pos: list[float], neg: list[float]) -> float:
     )
 
 
+def above(x: float) -> float:
+    return float(np.nextafter(float(x), np.inf))
+
+
 def grid(scored: list) -> tuple[dict[str, float], float, float]:
     """Umbrales que más salidas atacadas atrapan con a lo más 5 % de salidas legítimas tocadas."""
     best: tuple[float, float, dict[str, float]] = (
@@ -311,19 +348,26 @@ def grid(scored: list) -> tuple[dict[str, float], float, float]:
     )
     benign = [s for s in scored if not s[0].attacked]
     attacked = [s for s in scored if s[0].attacked]
-    # Candidatos sacados de los mismos datos: el máximo de ataque de cada salida legítima
+    # Candidatos sacados de los mismos datos: el máximo de ataque de las salidas legítimas
     # (tau_high), el ataque de los trozos legítimos (tau_low) y valores fijos de desvío.
     out_max = [max(A, default=0.0) for _, A, _ in benign]
     chunk_att = [a for _, A, _ in benign for a in A]
-    highs = sorted(
-        {float(np.quantile(out_max, q)) for q in (0.9, 0.93, 0.95, 0.97, 0.99, 1.0)}
-    )
+    # Cada candidato va justo por encima del valor (con `>=`, un umbral igual al máximo de una
+    # salida legítima la tocaría). Para tau_high, todos los máximos de la cola alta: los cortes
+    # exactos, como en best_single.
+    highs = sorted({above(m) for m in out_max if m >= np.quantile(out_max, 0.9)})
     lows = sorted(
-        {float(np.quantile(chunk_att, q)) for q in (0.8, 0.9, 0.95, 0.98, 0.99)}
+        {above(np.quantile(chunk_att, q)) for q in (0.8, 0.9, 0.95, 0.98, 0.99)}
     )
-    for hi, lo, dr in itertools.product(highs, lows, (0.5, 0.7, 0.8, 0.9, 0.95, 0.98)):
-        if lo > hi:
-            continue
+    # lo = hi apaga la rama del desvío: siempre queda una opción que cumple el 5 %.
+    combos = [
+        (hi, lo, dr)
+        for hi in highs
+        for lo in [*lows, hi]
+        if lo <= hi
+        for dr in (0.5, 0.7, 0.8, 0.9, 0.95, 0.98)
+    ]
+    for hi, lo, dr in combos:
         t = {"tau_high": hi, "tau_low": lo, "tau_drift": dr}
         fp = np.mean(
             [any(decision.flags(a, d, t) for a, d in zip(A, D)) for _, A, D in benign]
@@ -402,14 +446,21 @@ def main() -> None:
     report(scored)
     train_tables = {k: v for k, v in ref.tables.items() if k.startswith("drift/k")}
     results = compare(scored, train_tables)
+    n = len(halves(scored)[0])
     print(
-        "métodos (ajustados en una mitad de validación, medidos en la otra; promedio de las dos):"
+        f"métodos (validación cruzada en dos mitades de ~{n} salidas; promedio de las dos):"
     )
-    for name, (caught, fp) in results.items():
-        print(f"  {name:<26} atrapadas {caught:>4.0%}   legítimas tocadas {fp:>4.0%}")
-    ok = {n: r for n, r in results.items() if r[1] <= MAX_FP_OUTPUTS + 0.01}
-    chosen = max(ok or results, key=lambda n: (ok or results)[n][0])
-    print(f"elegido: {chosen}; se ajusta con toda la validación")
+    print(
+        f"  {'':<26} {'umbral de A, medido en B':>26}   {'umbral de B (misma tasa)':>26}   traslado"
+    )
+    for name, ((c1, f1), (c2, f2)) in results.items():
+        print(
+            f"  {name:<26} atrapadas {c1:>4.0%} tocadas {f1:>4.0%}"
+            f"   atrapadas {c2:>4.0%} tocadas {f2:>4.0%}"
+            f"   {c1 - c2:+.0%} / {f1 - f2:+.0%}"
+        )
+    chosen = max(results, key=lambda n: results[n][1][0])
+    print(f"elegido (a la misma tasa): {chosen}; se ajusta con toda la validación")
 
     flag, fitted = METHODS[chosen](scored, train_tables)
     ref.tables = {k: v for k, v in ref.tables.items() if not k.startswith("drift/k")}
