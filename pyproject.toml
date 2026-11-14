@@ -9,7 +9,8 @@ dependencies = []
 # El guardián real. Sin esto solo funciona el mock (GUARD_MOCK=1).
 # Torch para CPU: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
 guard = ["numpy", "sentence-transformers", "model2vec"]
-# Se agrega en el bloque 1: agentdojo (Integración).
+# Evaluación (Integración): AgentDojo con el detector DeBERTa y pytest. Versión fija para reproducir.
+bench = ["agentdojo[transformers]==0.1.35", "pytest"]
 
 [tool.setuptools]
 packages = ["guard"]
