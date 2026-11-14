@@ -14,7 +14,7 @@ El plan del día está en `docs/team.md`. En cada checkpoint cada persona muestr
 ## Pasos
 
 1. **Punta a punta:** las pruebas (`pytest`, si existen) y una tarea de AgentDojo con `guard-detect` y `guard-sanitize`. Si falla, eso va primero en el reporte.
-2. **Contrato:** `guard/check.py` y `bench/` usan la misma firma e `info` (skill `guard-contract`).
+2. **Contrato:** `guard/__init__.py`, `guard/mock.py` y `bench/` usan la misma firma e `info` (skill `guard-contract`).
 3. **Citas:** dependencias, `data/` y los commits desde el último checkpoint contra `CITATIONS.md` (skill `cite`).
 4. **Números:** el último archivo de `results/`, su commit y si el conjunto de prueba ya se usó.
 5. **Preguntas abiertas:** las de `CLAUDE.md` que haya que decidir en este checkpoint.

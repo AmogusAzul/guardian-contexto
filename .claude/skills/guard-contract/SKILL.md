@@ -11,13 +11,14 @@ Fuente de verdad: Contrato 1 en `docs/architecture.md`. Este resumen debe coinci
 from guard import check
 
 permitido, info = check(salida_de_herramienta, tarea="Pay my rent bill for this month", origen="herramienta")
+# opcional, referencia del drift_score: herramienta=ToolCall(name, description, arguments)  (from guard import ToolCall)
 ```
 
 | Campo | Tipo | Significado |
 |---|---|---|
 | `permitido` | `bool` | `True` si no se marcó ningún trozo |
 | `info["texto_limpio"]` | `str` | el texto con los trozos marcados reemplazados por `[contenido retirado por el guardián]` |
-| `info["trozos_marcados"]` | `list[dict]` | cada uno con `texto`, `attack_score`, `drift_score` |
+| `info["trozos_marcados"]` | `list[dict]` | cada uno con `texto`, `tipo` (`value`, `path`, `siblings`), `ruta` (`$.emails[1].body`), `attack_score`, `drift_score` |
 | `info["attack_score"]` | `float` 0–1 | el máximo entre los trozos |
 | `info["drift_score"]` | `float` 0–1 o `None` | el del trozo con mayor `attack_score`; `None` sin tarea |
 | `info["latencia_ms"]` | `float` | tiempo de `check()` |
@@ -30,7 +31,7 @@ permitido, info = check(salida_de_herramienta, tarea="Pay my rent bill for this 
 
 - `guard/` es Python puro: no importa AgentDojo ni `bench/`, no llama a un LLM, no tiene estado de otro módulo.
 - El modelo de embeddings se carga una vez (carga perezosa en el primer `check()`) y funciona sin red después de descargarlo.
-- Configuración (modelo, trozos, rutas) en `guard/config.py`; umbrales y dirección de ataque congelados en `guard/artifacts/` por el entrenamiento.
+- Un módulo por paso (`chunking`, `embedding`, `attack`, `drift`, `decision`, `rebuild`); `check()` en `guard/__init__.py` los encadena. Cada módulo tiene sus constantes arriba. Umbrales y dirección de ataque congelados en `guard/artifacts/` por el entrenamiento.
 - Objetivo de latencia: menos de 300 ms por salida.
 
 ## El mock

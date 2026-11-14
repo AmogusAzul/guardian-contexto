@@ -1,13 +1,68 @@
 """Guardián de contexto: revisa las salidas de herramientas antes de que entren al contexto del LLM.
 
-GUARD_MOCK=1 usa el mock de palabras clave (sin dependencias) en vez del guardián real.
+check() sigue el flujo de docs/algorithm.md, un módulo por paso:
+
+    chunking -> embedding -> attack + drift -> decision -> rebuild
+
+GUARD_MOCK=1 usa el mock de palabras clave (guard/mock.py, sin dependencias) mientras
+los pasos no estén escritos.
 """
 
+from __future__ import annotations
+
 import os
+import time
+
+from guard import attack, chunking, decision, drift, embedding, rebuild
+from guard.drift import ToolCall
+
+ORIGENES = ("herramienta", "manifiesto", "usuario")
+
+
+def check(
+    texto: str,
+    tarea: str | None = None,
+    origen: str = "herramienta",
+    herramienta: ToolCall | None = None,
+) -> tuple[bool, dict]:
+    """Contrato 1 (docs/architecture.md): devuelve (permitido, info)."""
+    if origen not in ORIGENES:
+        raise ValueError(f"origen desconocido: {origen!r}; usar uno de {ORIGENES}")
+    inicio = time.perf_counter()
+
+    doc, chunks = chunking.chunk(texto)
+    vectors = embedding.embed([c.text for c in chunks])
+    attack_scores = attack.score(chunks, vectors)
+    # El mensaje del usuario es la tarea: medir su desvío contra sí mismo no tiene sentido.
+    drift_scores = drift.score(
+        chunks, vectors, None if origen == "usuario" else tarea, herramienta
+    )
+    flagged = decision.decide(chunks, attack_scores, drift_scores)
+    texto_limpio = rebuild.rebuild(doc, [chunks[i] for i in flagged])
+
+    marcados = [
+        {
+            "texto": chunks[i].text,
+            "tipo": chunks[i].kind,
+            "ruta": chunking.format_path(chunks[i].path),
+            "attack_score": attack_scores[i],
+            "drift_score": drift_scores[i],
+        }
+        for i in flagged
+    ]
+    peor = max(range(len(chunks)), key=lambda i: attack_scores[i], default=None)
+    info = {
+        "texto_limpio": texto_limpio,
+        "trozos_marcados": marcados,
+        "attack_score": attack_scores[peor] if peor is not None else 0.0,
+        "drift_score": drift_scores[peor] if peor is not None else None,
+        "latencia_ms": (time.perf_counter() - inicio) * 1000,
+        "origen": origen,
+    }
+    return not flagged, info
+
 
 if os.environ.get("GUARD_MOCK") == "1":
     from guard.mock import check
-else:
-    from guard.check import check
 
-__all__ = ["check"]
+__all__ = ["ORIGENES", "ToolCall", "check"]

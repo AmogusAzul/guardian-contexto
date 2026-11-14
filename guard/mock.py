@@ -1,7 +1,7 @@
 """Mock del Contrato 1 (docs/architecture.md): palabras clave, sin dependencias.
 
 Se usa con GUARD_MOCK=1. Cumple la firma y la forma de la respuesta para que bench/ y el resto del equipo
-trabajen sin instalar el modelo. La versión real está en guard/check.py
+trabajen sin instalar el modelo. La versión real es check() en guard/__init__.py
 (docs/algorithm.md), con la misma firma.
 """
 
@@ -21,11 +21,18 @@ def _trozos(texto: str) -> list[str]:
     return [t for t in re.split(r"(?<=[.!?])\s+|\n+", texto) if t.strip()]
 
 
-def check(texto: str, tarea: str | None = None, origen: str = "herramienta") -> tuple[bool, dict]:
+def check(
+    texto: str,
+    tarea: str | None = None,
+    origen: str = "herramienta",
+    herramienta: object | None = None,
+) -> tuple[bool, dict]:
     """Revisa un texto antes de que entre al contexto del agente.
 
     Devuelve (permitido, info). Ver los campos de info en docs/architecture.md.
+    El mock ignora `herramienta`.
     """
+    del herramienta
     inicio = time.perf_counter()
     marcados = []
     limpio = texto

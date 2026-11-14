@@ -26,21 +26,25 @@ CITATIONS.md  todo lo que usamos y su licencia (todos)
 
 ## Contrato 1: `check()`
 
-No se cambia sin avisar a todos en un checkpoint. El mock que cumple este contrato ya está en `guard/check.py`: el backend y los adaptadores trabajan contra él desde el minuto uno.
+No se cambia sin avisar a todos en un checkpoint. `check()` está en `guard/__init__.py`; mientras sus pasos no estén escritos, `GUARD_MOCK=1` usa el mock de `guard/mock.py`, con la misma firma, y los adaptadores trabajan contra él.
 
 ```python
 from guard import check
 
 permitido, info = check(texto, tarea="Pay my rent bill for this month", origen="herramienta")
+
+# opcional: la llamada que produjo la salida (referencia del drift_score)
+from guard import ToolCall
+permitido, info = check(texto, tarea=..., herramienta=ToolCall("get_transactions", "List recent transactions", {"n": 10}))
 ```
 
 | Campo | Tipo | Significado |
 |---|---|---|
 | `permitido` | `bool` | `True` si no se marcó ningún trozo |
 | `info["texto_limpio"]` | `str` | el texto con los trozos marcados reemplazados por `[contenido retirado por el guardián]` |
-| `info["trozos_marcados"]` | `list[dict]` | cada uno con `texto`, `attack_score`, `drift_score` |
+| `info["trozos_marcados"]` | `list[dict]` | cada uno con `texto`, `tipo` (`value`, `path`, `siblings`), `ruta` (`$.emails[1].body`), `attack_score`, `drift_score` |
 | `info["attack_score"]` | `float` 0–1 | el máximo entre los trozos |
-| `info["drift_score"]` | `float` 0–1 o `None` | el del trozo con mayor `attack_score`; `None` sin tarea |
+| `info["drift_score"]` | `float` 0–1 o `None` | el del trozo con mayor `attack_score`; `None` si el trozo no tiene referencias |
 | `info["latencia_ms"]` | `float` | tiempo de `check()` |
 | `info["origen"]` | `str` | `herramienta` (por defecto), `manifiesto` (descripción de una herramienta, para MCPTox) o `usuario` |
 
@@ -76,6 +80,14 @@ text,label,category,source
 - `label`: `attack` o `benign`. `category`: subtipo libre en minúsculas_con_guion_bajo. `source`: de dónde salió la fila (para separar por fuente y para citar).
 - `text` es un **trozo o salida de herramienta**, no un mensaje de chat.
 - Obligatorio: **hard negatives** (textos legítimos que dan órdenes o suenan urgentes).
+
+**Propuesta (pendiente de acordar con Datos en un checkpoint):** para el desvío y los trozos estructurados, `val.csv` (y en lo posible `train.csv`) pasa a tener **salidas completas en contexto**, no trozos sueltos:
+
+```
+task,tool_name,tool_description,tool_arguments,output,injected_span,label,category,source
+```
+
+`output` es la salida completa (JSON, YAML o texto); `injected_span` es la ruta o el texto inyectado, vacío si es legítima. Detalle en [algorithm.md](algorithm.md#datos-que-necesita).
 
 ## Contrato 4: resultados
 

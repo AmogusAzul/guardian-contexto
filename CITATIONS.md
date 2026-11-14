@@ -17,9 +17,9 @@ La hackathon exige citar todo código, dataset, librería o fragmento generado c
 | deepset/prompt-injections (evaluado y **descartado**: estilo de chat, etiquetas ruidosas, filas en alemán) | https://huggingface.co/datasets/deepset/prompt-injections | Apache-2.0 | no se usa |
 | Documentación y mock inicial de `guard/check.py` | Generados con asistencia de IA (Claude) | — | `docs/`, `guard/` |
 | Instrucciones para agentes del equipo (`CLAUDE.md`, `.claude/skills/`) | Generadas con Claude Code (claude-opus-5-5); sin revisar | — | `CLAUDE.md`, `.claude/skills/` |
-| sentence-transformers | https://github.com/UKPLab/sentence-transformers | Apache-2.0 | `guard/embed.py` |
+| sentence-transformers | https://github.com/UKPLab/sentence-transformers | Apache-2.0 | `guard/embedding.py` |
 | all-MiniLM-L6-v2 | https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2 | Apache-2.0 | `guard/` (modelo `minilm`, por defecto) |
-| model2vec | https://github.com/MinishLab/model2vec | MIT | `guard/embed.py` |
-| potion-base-8M | https://huggingface.co/minishlab/potion-base-8M | MIT | `guard/` (modelo `potion`) |
+| model2vec | https://github.com/MinishLab/model2vec | MIT | rama `algorithm-v0` |
+| potion-base-8M | https://huggingface.co/minishlab/potion-base-8M | MIT | rama `algorithm-v0` (modelo `potion`) |
 | PyTorch, NumPy | https://pytorch.org, https://numpy.org | BSD-3-Clause | `guard/` |
-| Código del guardián v1 (`guard/`) y `data/seed.csv` (filas sintéticas) | Generados con asistencia de IA (Claude) | — | `guard/`, `data/seed.csv` |
+| Esqueleto del guardián (`guard/`), primera versión (rama `algorithm-v0`) y `data/seed.csv` (filas sintéticas) | Generados con asistencia de IA (Claude) | — | `guard/`, `data/seed.csv` |

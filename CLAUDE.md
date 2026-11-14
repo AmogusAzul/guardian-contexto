@@ -23,6 +23,7 @@ Si el código y estos documentos no coinciden, se avisa al equipo; no se cambia 
 
 ```
 guard/        paquete del guardián (Algoritmo). Python puro, sin dependencias de AgentDojo.
+              check() en __init__.py encadena chunking → embedding → attack + drift → decision → rebuild
 bench/        adaptadores y evaluación (Integración): guard-detect, guard-sanitize, palabras clave, AgentDojo, demo.py
 data/         datasets del Contrato 3 (Datos): train.csv, val.csv, test.csv
 results/      salidas de la evaluación con fecha y commit (Contrato 4); de aquí salen los números de la ficha
@@ -35,8 +36,8 @@ README.md     qué es, cómo instalar y el comando exacto de la evaluación
 ## Reglas que no se rompen
 
 1. **`guard/` es Python puro:** no importa AgentDojo, ni `bench/`, ni llama a un LLM. Lo usan `bench/` y cualquier proxy MCP.
-2. **Contrato del guardián** (Contrato 1, skill `guard-contract`): `check(texto: str, tarea: str | None = None, origen: str = "herramienta") -> tuple[bool, dict]`. `info` lleva `texto_limpio`, `trozos_marcados` (cada uno con `texto`, `attack_score`, `drift_score`), `attack_score`, `drift_score`, `latencia_ms` y `origen` (`herramienta`, `manifiesto` o `usuario`). Cambiarlo requiere avisar en un checkpoint.
-3. **`check()` va sobre cada salida de herramienta**, justo después de ejecutarla y antes de que vuelva al LLM. La `tarea` es el primer mensaje del usuario de la conversación. Las descripciones de herramientas (MCPTox) se revisan con `origen="manifiesto"`.
+2. **Contrato del guardián** (Contrato 1, skill `guard-contract`): `check(texto: str, tarea: str | None = None, origen: str = "herramienta", herramienta: ToolCall | None = None) -> tuple[bool, dict]`. `info` lleva `texto_limpio`, `trozos_marcados` (cada uno con `texto`, `tipo`, `ruta`, `attack_score`, `drift_score`), `attack_score`, `drift_score`, `latencia_ms` y `origen` (`herramienta`, `manifiesto` o `usuario`). Cambiarlo requiere avisar en un checkpoint.
+3. **`check()` va sobre cada salida de herramienta**, justo después de ejecutarla y antes de que vuelva al LLM. La `tarea` son los mensajes del usuario de la conversación; `herramienta` es la llamada que produjo la salida (nombre, descripción, argumentos). Las descripciones de herramientas (MCPTox) se revisan con `origen="manifiesto"`.
 4. **Citar todo** (skill `cite`): cada dependencia, dataset, modelo y archivo escrito con IA entra a `CITATIONS.md` **en el mismo cambio**. Es una regla del hackathon.
 5. **Uso responsable** (skill `responsible-use`): nada contra sistemas reales, ningún exploit funcional, solo datos sintéticos o públicos anonimizados. Los payloads de los benchmarks son texto: nunca se ejecutan.
 6. **Los números salen de `results/`,** nunca de ejemplos elegidos a mano. El conjunto de prueba y AgentDojo se corren una sola vez con el guardián congelado (skill `run-eval`). **Ningún texto de AgentDojo** entra al entrenamiento ni a la elección de umbrales.
@@ -46,21 +47,16 @@ README.md     qué es, cómo instalar y el comando exacto de la evaluación
 
 ```sh
 uv pip install -e ".[guard]"   # torch para CPU: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-python -m guard.train          # ajusta el guardián con data/train.csv + data/val.csv (o data/seed.csv); escribe guard/artifacts/<modelo>.json
-GUARD_MOCK=1 ...               # usa el mock sin dependencias
+GUARD_MOCK=1 ...               # usa el mock sin dependencias (los pasos de guard/ aún no están escritos)
 ```
 
 Integración agrega aquí y en el README las pruebas, AgentDojo con cada defensa y la evaluación del detector.
 
 ## Preguntas abiertas (decidir en un checkpoint)
 
-Salieron de una revisión del algoritmo; **no son decisiones todavía**:
+Ya resueltas en [docs/algorithm.md](docs/algorithm.md): trozos sobre la estructura (valores, rutas y claves), desvío con tres referencias y percentiles, falsos positivos por salida, retirar el campo o la rama. Siguen abiertas:
 
-- **`drift_score`:** el Contrato 3 no tiene columna de tarea, así que `τ_drift` no se puede elegir en validación sin AgentDojo; además las salidas legítimas suelen estar "lejos" de la tarea y las inyecciones de AgentDojo suelen ser del mismo dominio. ¿Agregar una columna `task` a validación, o empezar solo con `attack_score`?
-- **Unidad de los falsos positivos:** ¿el 5 % se mide por trozo o por salida completa? Con ventanas que se solapan, 5 % por trozo es mucho más por salida.
-- **Trozos:** las salidas de AgentDojo son listas tipo YAML/JSON, no prosa. ¿Partir primero por líneas, campos o elementos y luego por oraciones?
-- **Saneo:** si se marca una parte de un campo o párrafo, ¿se retira el campo entero para no dejar restos del ataque?
-- **Regresión logística en la versión 1:** ¿entrenarla junto a la resta de promedios y escoger en validación?
+- **Contrato 3:** filas con salidas completas en contexto (propuesta en `docs/architecture.md`). Datos tiene que aceptarla antes de generar.
 - **Ataques de AgentDojo:** ¿correr además de `important_instructions` otro ataque (`ignore_previous`, `tool_knowledge`) para no medir una sola plantilla?
 
 ## Idioma
