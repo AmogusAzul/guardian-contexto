@@ -12,7 +12,7 @@ import ast
 import json
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 import yaml
@@ -42,6 +42,8 @@ class Chunk:
         ""  # vecinos: ruta sin índices ("$.emails[*].body") o bloques de un texto
     )
     size: int = 0  # oraciones en la ventana (0 = valor o bloque entero, o ruta)
+    # otros lugares con el mismo texto (se embebe una vez, pero se retira en todos)
+    copies: tuple[tuple[Path, tuple[int, int] | None], ...] = ()
 
 
 @dataclass
@@ -306,11 +308,19 @@ def chunk(text: str) -> tuple[Document, list[Chunk]]:
                 node, root, [], doc, raw
             )  # las claves del sobre MCP no entran al texto
 
-    seen: set[tuple[str, str]] = set()
-    chunks = []
+    first: dict[tuple[str, str], int] = {}
+    chunks: list[Chunk] = []
     for c in raw:
-        if len(c.text.split()) >= MIN_WORDS and (c.kind, c.text) not in seen:
-            seen.add((c.kind, c.text))
+        if len(c.text.split()) < MIN_WORDS:
+            continue
+        key = (c.kind, c.text)
+        if (
+            key in first
+        ):  # mismo texto en otro lugar: p. ej. structuredContent y el bloque text
+            i = first[key]
+            chunks[i] = replace(chunks[i], copies=(*chunks[i].copies, (c.path, c.span)))
+        else:
+            first[key] = len(chunks)
             chunks.append(c)
     if len(chunks) > MAX_CHUNKS:  # nunca se salta una parte: se quitan ventanas y rutas
         chunks = [c for c in chunks if c.kind == "value" and c.size == 1]

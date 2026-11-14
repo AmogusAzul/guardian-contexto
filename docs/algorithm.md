@@ -159,7 +159,9 @@ Arma `guard/artifacts/<modelo>.npz` con `data/mcp_train.jsonl` (pasos 2 a 4), el
 ## 6. Reconstrucción (`rebuild.py`)
 
 - **`value`:** el `span` marcado se reemplaza por `[contenido retirado por el guardián]`; el resto del string se queda.
-- **`path`:** se sube desde el valor mientras el padre tenga un solo hijo, y se retira esa cadena entera. `do.not.tell…files` retira `do`; `emails[1].body` retira solo `body`.
+- **`path`:** se sube desde el valor mientras el padre tenga un solo hijo, y se retira esa cadena entera. `do.not.tell…files` retira `do`; `emails[1].body` retira solo `body`. En un objeto se **borra la clave** (la clave puede ser el ataque); en una lista el elemento pasa a ser el aviso, para no mover los otros índices. Nunca se sube por encima de una raíz (la salida, un bloque MCP, un JSON dentro de un string).
+- **Copias:** un texto que aparece en varios lugares (por ejemplo `structuredContent` y el bloque `text` de MCP) se embebe una vez pero se retira en todos.
+- Spans marcados que se tocan, o que solo separa espacio, llevan un solo aviso.
 - `text` y `loose`: se reemplaza en las posiciones guardadas del string original, así el formato no cambia. `json`, `python` y `yaml`: se rearma la estructura y se vuelve a escribir (puede cambiar los espacios; `python` sale como JSON).
 - Un JSON que venía dentro de un string vuelve a ser string. En un resultado MCP, `structuredContent` y el bloque `text` quedan limpios por igual.
 
