@@ -1,6 +1,6 @@
 # El algoritmo
 
-**Estado: versión 1 terminada** (decide solo con el ataque; el desvío queda para la versión 2). Falta reentrenar con los datos de banca pedidos a Datos ([data-banking-negatives.md](data-banking-negatives.md)) y congelar antes de las pruebas ([run-numbers.md](run-numbers.md)).
+**Estado: versión 2 congelada** (`ad59ff4`): decide la logística sobre el ataque y el desvío (paso 5). Números de prueba en `results/` (abajo). Falta reentrenar con los legítimos de banca y las paráfrasis de Datos que llegaron a `master` después del congelamiento ([data-banking-negatives.md](data-banking-negatives.md)).
 
 Dueño: **Algoritmo**. Código en `guard/`, un módulo por paso. Contrato en [architecture.md](architecture.md#contrato-1-check). Ajustes para después: [algorithm-sprint2.md](algorithm-sprint2.md).
 
@@ -64,7 +64,7 @@ Las salidas MCP y de AgentDojo son estructuras (JSON o YAML), no prosa. Se revis
 
 ## 2. Embeddings (`embedding.py`)
 
-- **Modelo:** `sentence-transformers/all-MiniLM-L6-v2` (384 dimensiones, CPU, lee unos 256 tokens). Se carga una vez, en el primer `check()`. La comparación con otros modelos queda para el [sprint 2](algorithm-sprint2.md).
+- **Modelo:** `sentence-transformers/all-MiniLM-L6-v2` (384 dimensiones, CPU, lee unos 256 tokens). Se carga una vez, en el primer `check()`. `BAAI/bge-small-en-v1.5` no separa mejor (logística: 85 % / 4 % en la lectura 1, igual) y es más lento (p95 de embeber una salida 340 ms frente a 170 ms): se queda MiniLM.
 - **Entrada:** el texto limpio del trozo, sin prefijos. Nada pasa de 120 palabras (lo corta el paso 1).
 - **Un lote por salida** y cada texto distinto una sola vez. Un caché chico en memoria guarda los textos recientes: el pedido, la llamada y las rutas que se repiten (`emails body`) son los mismos en cada llamada de una conversación o de una herramienta.
 - **Centrar:** restar **un solo promedio** (el de todos los trozos de entrenamiento, ataques y legítimos, equilibrado por fuente) y normalizar. Las referencias del desvío (pedido, llamada) pasan por lo mismo, así todos los cosenos viven en el mismo espacio. Sin centrar, los embeddings viven en un “cono” estrecho y casi todos los cosenos se parecen.
@@ -152,24 +152,66 @@ retirar si  attack ≥ τ_alto
 
 - El desvío solo decide en la zona gris del ataque: nunca retira nada solo. Un texto fuera de tema pero inofensivo se queda (también es la protección contra usar el guardián para censurar).
 - Entre ventanas que se solapan, gana la más corta: una oración maliciosa no arrastra a sus vecinas legítimas.
-- **Umbrales por salida, no por trozo.** Una salida es un falso positivo si se le retira **cualquier** trozo. Con 1 % de falsos positivos por trozo, una salida de 45 trozos pierde algo el 36 % de las veces (1 − 0,99⁴⁵). Los tres umbrales se eligen juntos en validación con una búsqueda en rejilla: la combinación que más salidas atacadas atrapa (con un trozo de ataque retirado) con a lo más 5 % de salidas legítimas tocadas. Los candidatos salen de los datos: para `τ_alto`, percentiles altos del máximo de ataque de cada salida legítima; para `τ_bajo`, percentiles del ataque de los trozos legítimos.
+- **Umbrales por salida, no por trozo.** Una salida es un falso positivo si se le retira **cualquier** trozo. Con 1 % de falsos positivos por trozo, una salida de 45 trozos pierde algo el 36 % de las veces (1 − 0,99⁴⁵). Los tres umbrales se eligen juntos en validación con una búsqueda en rejilla: la combinación que más salidas atacadas atrapa (con un trozo de ataque retirado) sin pasar el presupuesto de salidas legítimas tocadas (abajo). Los candidatos salen de los datos: para `τ_alto`, justo por encima de cada máximo de ataque de la cola alta de las salidas legítimas (un umbral igual a ese máximo, con `≥`, la tocaría); para `τ_bajo`, percentiles del ataque de los trozos legítimos, más `τ_bajo = τ_alto`, que apaga la rama del desvío.
 
-**Cuatro formas de decidir, comparadas en validación** (`guard.train`; se ajustan en una mitad y se miden en la otra, promedio de las dos):
+### Combinación aprendida (`stack.py`)
 
-| Método | Qué decide | Atrapadas | Legítimas tocadas |
-|---|---|---|---|
-| Solo ataque | `attack ≥ τ_alto` | 72 % | 5 % |
-| Regla, tabla final del desvío de train | la regla de arriba | 79 % | 8 % |
-| Regla, tabla final del desvío de validación | la regla de arriba | 78 % | 10 % |
-| Logística (`stack.py`) | una regresión logística sobre los percentiles (ataque, pedido, llamada, vecinos) y la clase del trozo, con un solo umbral | 84 % | 7 % |
+En vez de la regla, una **regresión logística por trozo** con un solo umbral por salida. Rasgos: `−log(1 − attack)` (estira la cola alta), los tres percentiles del desvío (0 y una marca si falta la referencia), la clase del trozo y `log(1 + palabras)`. Se ajusta con los trozos etiquetados de validación, clases equilibradas, rasgos estandarizados y L2 = 100 (de 100 a 1 000 da lo mismo); los pesos vuelven a la escala cruda, así en ejecución es un producto punto. **Piso del ataque:** bajo el percentil 90 del ataque, el riesgo es 0. Sin él, con el largo como rasgo, un trozo largo y fuera de tema se retiraba con ataque 0,5: el desvío solo no retira nada, igual que en la regla. En validación no cambia nada. `guard.train` la compara con los demás a la misma tasa (abajo); desde la versión 2 es la que decide (`ref.method = "stack"`).
 
-Se elige el que mejor separa y se reajusta con toda la validación; el método y sus umbrales quedan en el archivo de referencia (`method`). **Versión 1: solo ataque** (`τ_alto = 0,9936`): es el único que se mantiene en 5 % de legítimas tocadas en la otra mitad. **En la versión 1 el desvío no se usa:** `check()` no lo calcula (`drift_score` es `None`) y la regla queda en `attack ≥ τ_alto`. Las otras formas atrapan más pero se pasan del 5 % al cambiar de mitad; la estrategia de clasificación se revisa en la versión 2 ([algorithm-sprint2.md](algorithm-sprint2.md)). `drift.py`, `stack.py` y la comparación de `guard.train` se quedan para eso.
+**Copias sin llamada y sin pedido.** Validación siempre trae pedido y llamada, pero en ejecución pueden faltar: el adaptador de AgentDojo no pasa `herramienta`, y los manifiestos y `origen="usuario"` no tienen pedido. Cada trozo de validación entra a la logística tres veces: completo, sin la llamada y sin el pedido. Sin esas copias, una salida revisada sin llamada tenía 11 % de legítimas tocadas (lectura 1) en vez de 4 %. La llamada se arma con nombre, **descripción** y argumentos, igual que en ejecución.
 
-`check()` de punta a punta en `data/mcp_val.jsonl` con esa versión: 93 de 111 inyecciones retiradas, 5 de 111 salidas legítimas tocadas, latencia mediana 97 ms (p95 293 ms) después de la primera llamada, que carga el modelo (unos 15 s).
+**Presupuesto del umbral.** Con `n` salidas legítimas, un corte que toca `k` de ellas toca en promedio `(k + 1)/(n + 1)` de las salidas nuevas (conformal), no `k/n`. El umbral final permite el mayor `k` con `(k + 1)/(n + 1) ≤ 5 %`: 4 de las 111 legítimas de validación en vez de 5. Con el 5 % a secas, en 200 particiones al azar el umbral pasaba el 5 % en salidas nuevas la mitad de las veces.
+
+### Cómo se comparan los métodos
+
+Validación cruzada en dos mitades de validación (~111 salidas, la mitad legítimas), repetida en 10 particiones al azar, con dos lecturas:
+
+1. **Todo en A** (tablas, pesos y umbral), medido en B: lo que pasaría en ejecución.
+2. **Piezas en A, umbral elegido en B**, medido en B: todos los métodos quedan a lo más en 5 % de legítimas tocadas. Es la comparación justa y **la que elige**.
+
+La diferencia entre las dos es lo que cuesta trasladar el umbral. Con ~55 legítimas por mitad, una salida son 1,8 puntos: diferencias de 1 a 2 puntos son ruido.
+
+Números de la rama `algo-polish`, con los datos anteriores a los de `branch-data`:
+
+| Método (10 particiones) | Lectura 1: atrapadas / tocadas | Lectura 2: atrapadas / tocadas |
+|---|---|---|
+| solo ataque | 71 % / 3 % | 73 % / 2 % |
+| regla (ataque + desvío) | 73 % / 4 % | 75–76 % / 2 % |
+| logística, versión anterior (sin palabras, L2 = 1, 5 % a secas) | 84 % / 6 % | 84 % / 4 % |
+| **logística** | **85 % / 4 %** | **88 % / 3 %** |
+
+Lo que se vio al probar (detalle en [algorithm-sprint2.md](algorithm-sprint2.md)):
+
+- **El desvío solo sirve dentro de la logística.** En la regla, a ≤ 5 % de tocadas, la rama del desvío suma 2 puntos sobre el ataque solo. En la logística, quitar el desvío baja de 84 % a 62 %. La señal viene del **pedido** y de la **llamada** (uno reemplaza casi del todo al otro); los **vecinos** no suman nada medible (faltan en el 60 % de los trozos), pero no estorban y se quedan.
+- **El desvío falla con inyecciones en tema.** En InjecAgent, donde la inyección está escrita para la herramienta, el AUC del desvío es 0,41 (por debajo del azar). Es el límite de “Lo que no puede” (paso 4): en AgentDojo se espera menos ganancia del desvío que aquí.
+- **La dirección de ataque se queda en la resta de promedios.** Regresión logística sobre los embeddings y vecinos cercanos dan AUC por trozo parecido o mejor, pero no más salidas atrapadas: lo que decide es el trozo legítimo más alto de cada salida, y ahí la resta de promedios es la más estable.
+- **Lo que sigue tocando:** oraciones legítimas que suenan a orden (“The agent must call the customer back…”, “Reminder: cancel the old weekly sync…”) y rutas con “reset password url”.
+
+Se elige el que mejor separa a la misma tasa (lectura 2) y se reajusta con toda la validación; el método y sus umbrales quedan en el archivo de referencia (`method`).
+
+### Versión 2 (datos de `branch-data`, `data/mcp_val.jsonl`, 10 particiones)
+
+| Método | Lectura 1: atrapadas / tocadas | Lectura 2: atrapadas / tocadas |
+|---|---|---|
+| solo ataque (versión 1) | 61 % / 3 % | 64 % / 4 % |
+| regla (ataque + desvío) | 64 % / 4 % | 66–67 % / 3 % |
+| **logística con copias (versión 2)** | **84 % / 3 %** | **85 % / 2 %** |
+
+Validación cruzada dejando una fuente fuera (`mcp_train` + `mcp_val`, 12 fuentes; la fuente no entra ni a la referencia ni a la logística ni al umbral): atrapadas 273/329 (83 %) frente a 243/329 (74 %) de la versión 1, legítimas intactas 306/329 (93 %) frente a 299/329 (91 %). En las fuentes que no vio, las legítimas sintéticas de banca (4/8 intactas) y wiki (5/8) salen tocadas con los dos métodos: el guardián se equivoca más en dominios nuevos.
+
+**Prueba, una sola vez** (`python -m bench.eval_detector`, guardián congelado en `ad59ff4`; `results/2026-11-14-*-detector-test-*.json`):
+
+| Conjunto | Versión 1: atrapadas / intactas | Versión 2: atrapadas / intactas |
+|---|---|---|
+| `mcp_test`, con la llamada | 109/198 (55 %) / 191/198 (96 %) | 130/198 (66 %) / 193/198 (97 %) |
+| `mcp_test`, sin la llamada | 109/198 (55 %) / 191/198 (96 %) | 142/198 (72 %) / 188/198 (95 %) |
+| `test.csv`, sin pedido ni llamada | 477/717 (67 %) / 668/717 (93 %) | 612/717 (85 %) / 607/717 (85 %) |
+
+Sin pedido ni llamada la versión 2 toca más legítimas (sobre todo `notinject`, frases legítimas con palabras de ataque: 120/166 intactas frente a 158/166). En correos largos de LLMail, el desvío los ve “en tema” y la versión 2 atrapa menos (30/60 frente a 48/60 con la llamada). Latencia de `check()` en prueba: mediana 77 ms, p95 1,4 s (los correos largos de LLMail; igual en la versión 1).
 
 ## Entrenar y medir (`python -m guard.train`)
 
-Arma `guard/artifacts/<modelo>.npz` con `data/mcp_train.jsonl` (pasos 2 a 4), compara los métodos del paso 5 en `data/mcp_val.jsonl`, guarda el elegido con sus umbrales e imprime las pruebas: centrado, AUC por clase, la comparación y la latencia. Tarda unos minutos en CPU. Si se cambia el troceo o los datos, hay que volver a correrlo.
+Arma `guard/artifacts/<modelo>.npz` con `data/mcp_train.jsonl` (pasos 2 a 4), compara los métodos y elige el umbral con `data/mcp_val.jsonl` (paso 5) e imprime las pruebas: centrado, AUC por clase, la tabla de métodos con las dos lecturas y latencia. Tarda alrededor de un minuto y medio en CPU. `--splits` cambia cuántas particiones de validación se promedian (10 por defecto).
 
 ## 6. Reconstrucción (`rebuild.py`)
 

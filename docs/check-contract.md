@@ -13,7 +13,7 @@ permitido, info = check(
 )
 ```
 
-- **Versión 1:** decide solo el puntaje de ataque. `tarea` y `herramienta` se aceptan (mismo contrato) pero no se usan, y `drift_score` sale siempre `None`.
+- **Versión 2:** decide una logística sobre el ataque y el desvío; `tarea` y `herramienta` alimentan el desvío y `drift_score` vuelve a llenarse. Sin `herramienta` (o sin `tarea`) funciona igual con una referencia menos; pasar la llamada es lo recomendado.
 - `ToolCall(name: str, description: str = "", arguments: Mapping[str, Any] = {})`. En AgentDojo: el nombre y la descripción de la función llamada y sus argumentos. Si no se pasa, el guardián funciona igual con una referencia menos.
 - `origen` desconocido → `ValueError`. Cualquier otro error sale como excepción: el adaptador decide si deja pasar o bloquea.
 - Determinista: la misma entrada da la misma salida. Objetivo: < 300 ms por llamada en CPU.
@@ -29,7 +29,7 @@ permitido, info = check(
 | `texto_limpio` | `str` | la salida sin lo marcado, **en el mismo formato** que la entrada (JSON → JSON, YAML → YAML, texto → texto; un dict de Python sale como JSON). Si `permitido`, igual a `texto` |
 | `trozos_marcados` | `list[dict]` | lo retirado; vacía si `permitido` |
 | `attack_score` | `float` 0–1 | el mayor entre los trozos; 0.0 si no hubo trozos |
-| `drift_score` | `float` 0–1 \| `None` | el del trozo con mayor `attack_score`; `None` si ese trozo no tenía referencias. **Versión 1: siempre `None`** |
+| `drift_score` | `float` 0–1 \| `None` | el del trozo con mayor `attack_score`; `None` si ese trozo no tenía referencias. |
 | `latencia_ms` | `float` | tiempo de `check()` |
 | `origen` | `str` | el `origen` recibido |
 
@@ -41,7 +41,7 @@ Cada elemento de `trozos_marcados`:
 | `tipo` | `str` | `"value"` o `"path"` |
 | `ruta` | `str` | `"$.emails[1].body"` (`"$"` en texto plano) |
 | `attack_score` | `float` 0–1 | `0.94` |
-| `drift_score` | `float` 0–1 \| `None` | `0.71` (versión 1: `None`) |
+| `drift_score` | `float` 0–1 \| `None` | `0.71` |
 
 Lo retirado se reemplaza por `[contenido retirado por el guardián]`.
 

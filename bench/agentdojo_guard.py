@@ -22,6 +22,7 @@ from agentdojo.functions_runtime import EmptyEnv, Env, FunctionsRuntime
 from agentdojo.types import ChatMessage, MessageContentBlock, get_text_content_as_str, text_content_block_from_string
 
 import guard
+from guard import ToolCall
 
 CheckFn = Callable[..., tuple[bool, dict]]
 
@@ -32,6 +33,15 @@ def tarea_de(messages: Sequence[ChatMessage], query: str | None = None) -> str |
         if m["role"] == "user":
             return get_text_content_as_str(m["content"] or []) or query
     return query
+
+
+def llamada_de(runtime: FunctionsRuntime, tool_call) -> ToolCall | None:
+    """La llamada de un mensaje de herramienta: nombre, descripción del esquema y argumentos."""
+    if tool_call is None:
+        return None
+    nombre = tool_call.function
+    funcion = runtime.functions.get(nombre)
+    return ToolCall(nombre, funcion.description if funcion else "", dict(tool_call.args or {}))
 
 
 class GuardDetect(PromptInjectionDetector):
@@ -46,6 +56,7 @@ class GuardDetect(PromptInjectionDetector):
         self.tarea: str | None = None
         self.registro: list[dict] = []  # una fila por salida de herramienta revisada
         self._ultimo: dict | None = None
+        self._pendientes: list[tuple[str, ToolCall | None]] = []
 
     def query(
         self,
@@ -57,15 +68,28 @@ class GuardDetect(PromptInjectionDetector):
     ) -> tuple[str, FunctionsRuntime, Env, Sequence[ChatMessage], dict]:
         # detect() solo recibe el texto: la tarea se fija aquí, antes de que el padre lo llame.
         self.tarea = tarea_de(messages, query)
+        # Y la llamada de cada salida: el padre llama detect() sobre los últimos mensajes de
+        # herramienta, del último hacia atrás; se guardan en ese mismo orden.
+        self._pendientes = []
+        for m in reversed(messages):
+            if m["role"] != "tool":
+                break
+            texto = get_text_content_as_str(m["content"] or []) or ""
+            self._pendientes.append((texto, llamada_de(runtime, m.get("tool_call"))))
         return super().query(query, runtime, env, messages, extra_args)
 
     def detect(self, tool_output: str) -> tuple[bool, float]:
+        # La llamada que produjo esta salida (None si no se sabe: check() funciona igual).
+        herramienta = None
+        if self._pendientes and self._pendientes[0][0] == tool_output:
+            herramienta = self._pendientes.pop(0)[1]
+        kwargs = {"tarea": self.tarea, "origen": "herramienta", "herramienta": herramienta}
         try:
-            permitido, info = self._check(tool_output, tarea=self.tarea, origen="herramienta")
+            permitido, info = self._check(tool_output, **kwargs)
         except NotImplementedError:
             from guard.mock import check as mock_check
             self._check = mock_check
-            permitido, info = self._check(tool_output, tarea=self.tarea, origen="herramienta")
+            permitido, info = self._check(tool_output, **kwargs)
 
         self._ultimo = info
         self.registro.append(
