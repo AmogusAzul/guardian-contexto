@@ -86,6 +86,20 @@ Pedido en `docs/data-key-attacks.md`; los genera `key_attacks.py`. El guardián 
 - **Separación:** frases de ataque, claves legítimas y datos del atacante distintos por split.
 - **`injected_text`** = `key_attacks.path_words(ruta, valor)`: la ruta completa desde la raíz, claves partidas en palabras (`_`, `-`, `.`, camelCase), sin índices de listas, más el valor si tiene 12 palabras o menos. `injected_path` = la ruta JSON (`$.model.must.silently.pay.theInvoice.to`). **Algoritmo:** importen `path_words` para armar exactamente lo mismo, o avisen si el guardián parte las claves de otra forma.
 
+## Prueba contra el troceo del guardián: `check_chunks.py`
+
+```sh
+python data/check_chunks.py --fallos 5   # necesita PyYAML (dependencia de guard)
+```
+
+Pasa cada caso de `mcp_*.jsonl` y cada fila de los CSV por `guard/chunking.py` y comprueba, para cada ataque, que algún trozo quede como `attack` según `label()` (≥ 80 % del trozo es `injected_text`), que sea del tipo esperado (`value`, o `path` en `key_injection`) y que esté en `injected_path`. En `key_injection` comprueba además que `injected_text` sea **idéntico** al trozo de ruta del guardián.
+
+Resultado actual: 522/527 casos MCP y 1.765/1.771 filas con un trozo `attack`; ruta correcta 150/155. Los fallos que quedan son límites del troceo, no de los datos:
+- **InjecAgent `TwitterManagerReadTweet`:** la plantilla pega la inyección a mitad de oración (`"We proudly present our new flavor, <inyección>"`): el trozo mezcla texto legítimo y queda ambiguo.
+- **Clave corta con valor largo** (`{"transfer-savings-to": "<IBAN de 7 bloques>"}`): el valor no entra a la ruta (> 6 palabras) y la ruta queda con 3 palabras (< `MIN_WORDS`): el guardián no ve el ataque.
+
+Lo que se corrigió en los datos gracias a esta prueba: inyecciones sintéticas pegadas en la misma línea sin un límite de oración que el guardián reconozca (portador sin punto final, o envoltura `**…**`/`> …`). Ahora solo se pegan en la misma línea cuando el portador termina en `.!?` y la inyección empieza con mayúscula, comilla, `(`, `<`, `#` o `[`.
+
 ## Manifiestos MCP (MCPTox): `mcp_manifests.jsonl`
 
 Descripciones de herramientas para evaluar `check(texto, origen="manifiesto")`. Solo **val** y **test**: es material de evaluación, no se entrena con él. Lo genera `manifests.py` dentro de `python data/build.py`.

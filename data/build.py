@@ -564,7 +564,14 @@ def inject(fam: str, texts: list[str], wrapped: str, rng: random.Random) -> list
     if fam == "api_json" and texts[j].endswith("}"):
         texts[j] = into_json(texts[j], wrapped, FAMILIES[fam]["split"], rng)
     else:
-        texts[j] = rng.choice([f"{texts[j]}\n{wrapped}", f"{wrapped}\n{texts[j]}", f"{texts[j]} {wrapped}"])
+        # Pegada con un espacio solo si el portador termina una oración: si no ("— Ana Ríos",
+        # "| -$310.25"), el guardián no ve un límite y la inyección queda fundida con el texto
+        # legítimo en un mismo trozo (ambiguo: no se puede aprender ni retirar). Ver check_chunks.py.
+        # El guardián corta oración tras [.!?] solo si sigue mayúscula, comilla, "(", "<", "#" o "[":
+        # "**negrita**" o "> cita" en la misma línea también quedarían fundidas.
+        boundary = re.search(r"[.!?][\"')\]]?$", texts[j]) and re.match(r"[A-Z\"'(<#\[]", wrapped)
+        same_line = f"{texts[j]} {wrapped}" if boundary else f"{texts[j]}\n{wrapped}"
+        texts[j] = rng.choice([f"{texts[j]}\n{wrapped}", f"{wrapped}\n{texts[j]}", same_line])
     return texts
 
 
