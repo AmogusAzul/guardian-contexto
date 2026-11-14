@@ -75,7 +75,7 @@ Un script de entrenamiento los arma una vez y se congelan con el commit:
 |---|---|
 | promedio para centrar | todos los trozos de entrenamiento |
 | dirección de ataque | trozos de ataque − trozos legítimos (paso 3) |
-| tablas de percentiles: ataque por tipo de trozo, desvío por (referencia, tipo) | trozos legítimos |
+| tablas de percentiles: ataque por (tipo, tamaño), desvío por (referencia, tipo, tamaño) | trozos legítimos |
 | nombre del modelo y commit de los datos | — |
 
 **Etiquetar trozos.** Los datos vienen por salida completa y la dirección se aprende por trozo. Se usa **`data/mcp_train.jsonl`**, que trae `injected_text`:
@@ -96,7 +96,7 @@ Son 376 salidas (188 con ataque). Alcanza para una resta de promedios en 384 dim
 ## 3. `attack_score` (`attack.py`)
 
 - **Dirección de ataque** = promedio(trozos de ataque) − promedio(trozos legítimos), con las etiquetas del paso 2. El puntaje crudo es el coseno del trozo con esa dirección.
-- **Calibración:** el coseno pasa a **percentil de los trozos legítimos del mismo tipo** (`value`, `path`). Así los trozos de ruta, cortos y telegráficos, comparten escala con las oraciones.
+- **Calibración:** el coseno pasa a **percentil de los trozos legítimos de la misma clase** (tipo y tamaño, ver “Escalas” en el paso 4). Así los trozos de ruta, cortos y telegráficos, comparten escala con las oraciones.
 
 ## 4. `drift_score` (`drift.py`)
 
@@ -104,15 +104,15 @@ Son 376 salidas (188 con ataque). Alcanza para una resta de promedios en 384 dim
 
 | Referencia | Por qué encaja un trozo legítimo | Ejemplo |
 |---|---|---|
-| **Pedido**: todos los mensajes del usuario | responde lo que se pidió | “Q3 report attached” frente a “find the Q3 report” |
-| **Llamada**: nombre, descripción y argumentos de la herramienta | es el tipo de dato que devuelve | `Spotify 15.00 EUR` frente a `get_transactions: list recent transactions` |
-| **Vecinos**: los otros valores con el mismo `group` | se parece a los valores de al lado | un `emails[*].body` frente a los otros cuerpos |
+| **Pedido**: cada mensaje del usuario, por separado; cuenta el que más se parece | responde lo que se pidió | “Q3 report attached” frente a “find the Q3 report” |
+| **Llamada**: un solo texto con el nombre de la herramienta en palabras, su descripción y los valores de los argumentos | es el tipo de dato que devuelve | `Spotify 15.00 EUR` frente a `get_transactions: list recent transactions` |
+| **Vecinos**: los otros valores con el mismo `group` (al menos 3) | se parece a los valores de al lado | un `emails[*].body` frente a los otros cuerpos |
 
 Con `origen="manifiesto"` (descripciones de herramientas, MCPTox) no hay pedido: la referencia es el nombre de la herramienta y sus parámetros. Una descripción de `add(a, b)` que habla de leer `~/.ssh` queda lejos de “add a b”.
 
 **Calibración en dos capas.**
 
-1. **Percentiles.** Los cosenos crudos no se pueden comparar: un trozo siempre está cerca de sus vecinos y lejos de un pedido de una línea, así que un máximo de cosenos crudos siempre lo ganan los vecinos. Para cada par (referencia, tipo de trozo) se guarda la distribución de los cosenos de los trozos legítimos de entrenamiento (101 percentiles). En ejecución, `p_ref` = percentil del coseno en esa distribución. Ahora todo `p` dice lo mismo: qué tan normal es ese encaje.
+1. **Percentiles.** Los cosenos crudos no se pueden comparar (ver “Escalas” abajo): un trozo siempre está cerca de sus vecinos y lejos de un pedido de una línea, así que un máximo de cosenos crudos siempre lo ganan los vecinos. Para cada clase se guarda la distribución de los cosenos de los trozos legítimos de entrenamiento. En ejecución, `p_ref` = percentil del coseno en esa distribución. Ahora todo `p` dice lo mismo: qué tan normal es ese encaje.
 2. **Número de referencias.** `m = max(p de las referencias que existan)` y
 
    ```
@@ -121,7 +121,21 @@ Con `origen="manifiesto"` (descripciones de herramientas, MCPTox) no hay pedido:
 
    con `k` = número de referencias disponibles (no hay pedido en manifiestos; no hay vecinos con menos de 3). Si los `k` percentiles fueran independientes, el máximo de un trozo legítimo cumple P(max ≤ m) = mᵏ, así que `drift` queda repartido parejo entre 0 y 1 para cualquier `k`, y `τ_drift = 0,95` se lee “solo el 5 % de los legítimos se ve así de fuera de lugar”. No son independientes (pedido y llamada se parecen): es una aproximación. Si en validación no se sostiene, un `τ_drift` por cada `k`.
 
-**Vecinos.** Su referencia es el promedio de los **otros** valores del grupo, sin el trozo. En texto plano, los vecinos son las otras oraciones, sin las ventanas que se solapan con el trozo. Con menos de 3 vecinos, no hay referencia de vecinos y `k` baja.
+**Vecinos.** El coseno con los vecinos es el **promedio de los cosenos con cada vecino**, no el coseno con su vector promedio: el promedio de 20 vectores es más “liso” que el de 3 y el coseno con él crece con la cantidad; el promedio de cosenos no depende de cuántos son. Nunca se cuenta el trozo mismo. En texto, los vecinos son los otros bloques; tampoco cuentan las ventanas que se solapan con el trozo. Con menos de 3 vecinos, no hay referencia de vecinos y `k` baja.
+
+**Escalas.** Lo que mueve los cosenos crudos, y qué se hace con cada cosa:
+
+| Fuente | Por qué cambia la escala | Qué se hace |
+|---|---|---|
+| Referencia (pedido, llamada, vecinos) | los vecinos siempre parecen más cerca que un pedido de una línea | una tabla de percentiles por referencia |
+| Tipo de trozo (`value`, `path`) | las rutas son texto corto y telegráfico | una tabla por tipo |
+| Tamaño del trozo | los trozos largos promedian su significado y quedan más cerca de todo | una tabla por tamaño: 1 oración, 2–3 oraciones, valor o bloque entero. Si una clase tiene menos de unos 200 ejemplos, usa la tabla de su tipo |
+| Cantidad de vecinos | el coseno con un promedio crece con la cantidad | promedio de cosenos (arriba) |
+| Herramienta o dominio | hay herramientas cuyos datos están naturalmente lejos del pedido | no se calibra por herramienta (en ejecución son nuevas); los vecinos lo absorben en parte. Límite aceptado |
+
+Así quedan unas 18 tablas de desvío (3 referencias × 2 tipos × 3 tamaños) y 6 de ataque (2 tipos × 3 tamaños), cada una con 101 percentiles de los trozos legítimos de entrenamiento. Entre puntos se interpola; fuera del rango se recorta a 0 o 1. **La llamada se arma igual al calibrar y en ejecución** (mismos campos): si en ejecución se agregara un campo que no estaba al calibrar, los cosenos subirían y el desvío saldría bajo sin razón.
+
+**Prueba de la calibración.** En los trozos legítimos de validación, `drift` tiene que quedar **parejo** entre 0 y 1 para cada `k` (cerca de 10 % en cada décimo). Si se cumple, `τ_drift = 0,95` significa de verdad 5 % de los legítimos. Si un `k` se desvía, ese `k` lleva su propio umbral.
 
 **Sin ninguna referencia** (texto plano de una oración, sin tarea ni herramienta): `drift = None`.
 
