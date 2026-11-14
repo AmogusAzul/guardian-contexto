@@ -39,7 +39,7 @@ from string import Template
 
 import sources
 from build import (AGENTDOJO_SIGNATURES, ATTACK_CATEGORIES, FAMILIES, _Azar, carriers, inject,
-                   make_payload, separator)
+                   make_payload, join_items)
 
 ALIGNED_SHARE = 0.4  # fracción de ataques alineados con la tarea (el drift_score no los delata)
 
@@ -138,7 +138,7 @@ def make_case(fam: str, idx: int, attack: bool, rng: random.Random) -> dict:
         injected, wrapped = make_payload(fam, category, rng, slots)
         texts = inject(fam, texts, wrapped, rng)
 
-    text = separator(fam).join(texts)
+    text = join_items(fam, texts)
 
     rid = idx + 1
     return {
@@ -167,6 +167,7 @@ def _case(cid: str, prompt: str, tool: str, args, text: str, row_like: dict, rid
         "label": row_like["label"],
         "category": row_like["category"],
         "injected_text": row_like.get("injected_text"),
+        "injected_path": row_like.get("injected_path"),  # ruta JSON del campo inyectado (si se conoce)
         "source": row_like["source"],
         "split": row_like["split"],
     }
