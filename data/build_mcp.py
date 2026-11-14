@@ -159,6 +159,7 @@ def make_case(fam: str, idx: int, attack: bool, rng: random.Random) -> dict:
         "tool_description": tool["description"],
         "mcp_response": {"jsonrpc": "2.0", "id": rid,
                          "result": {"content": [{"type": "text", "text": text}], "isError": False}},
+        "output_format": output_format(text),
         "label": "attack" if attack else "benign",
         "category": category,
         "injected_text": injected,
@@ -166,6 +167,18 @@ def make_case(fam: str, idx: int, attack: bool, rng: random.Random) -> dict:
         "source": f"synthetic_{fam}",
         "split": split,
     }
+
+
+def output_format(text: str, declared: str | None = None) -> str:
+    """Formato real de la salida: "yaml" (como AgentDojo, lo marca pipeline.yamlify), "json" o "text"."""
+    if declared:
+        return declared
+    try:
+        if isinstance(json.loads(text), (dict, list)):
+            return "json"
+    except ValueError:
+        pass
+    return "text"
 
 
 def _case(cid: str, prompt: str, tool: str, args, text: str, row_like: dict, rid: int) -> dict:
@@ -178,6 +191,7 @@ def _case(cid: str, prompt: str, tool: str, args, text: str, row_like: dict, rid
         "tool_description": row_like.get("tool_description") or "",
         "mcp_response": {"jsonrpc": "2.0", "id": rid,
                          "result": {"content": [{"type": "text", "text": text}], "isError": False}},
+        "output_format": output_format(text, row_like.get("format")),
         "label": row_like["label"],
         "category": row_like["category"],
         "injected_text": row_like.get("injected_text"),

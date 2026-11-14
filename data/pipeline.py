@@ -22,6 +22,8 @@ import sys
 import unicodedata
 from pathlib import Path
 
+import yaml  # PyYAML: salidas en YAML como AgentDojo (también lo usa guard/chunking.py)
+
 import sources
 from build import AGENTDOJO_SIGNATURES, EVIL, SEED, gen_synthetic, make_json_attack
 
@@ -90,12 +92,72 @@ def _latin_ratio(text: str) -> float:
     return sum("LATIN" in unicodedata.name(c, "") for c in letters) / len(letters)
 
 
+def _strings(o):
+    if isinstance(o, dict):
+        for v in o.values():
+            yield from _strings(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _strings(v)
+    elif isinstance(o, str):
+        yield o
+
+
 def span_found(row: dict) -> bool:
-    """¿El fragmento malicioso (`injected_text`) aparece en `text`? Tal cual, o escapado como
-    cadena JSON cuando va dentro de un campo (InjecAgent, Glaive, api_json). Los ataques en
-    claves (`key_injection`) se excluyen: su `injected_text` es la ruta en palabras (path_words)."""
+    """¿El fragmento malicioso (`injected_text`) aparece en `text`? Tal cual, escapado como
+    cadena JSON cuando va dentro de un campo (InjecAgent, Glaive, api_json) o, en YAML, dentro de
+    algún valor ya leído (yaml.safe_dump parte los textos largos en varias líneas y escapa lo no
+    ASCII, así que no aparece tal cual). Los ataques en claves (`key_injection`) se excluyen: su
+    `injected_text` es la ruta en palabras (path_words)."""
     inj, t = row.get("injected_text") or "", row["text"]
-    return bool(inj) and (inj in t or json.dumps(inj, ensure_ascii=False)[1:-1] in t)
+    if not inj:
+        return False
+    if inj in t or json.dumps(inj, ensure_ascii=False)[1:-1] in t:
+        return True
+    if row.get("format") == "yaml":
+        try:
+            return any(inj in s for s in _strings(yaml.safe_load(t)))
+        except yaml.YAMLError:
+            return False
+    return False
+
+
+# --------------------------------------------------------------------------------------
+# Salidas en YAML, como las devuelve AgentDojo
+# --------------------------------------------------------------------------------------
+
+YAML_SHARE = 0.35  # fracción de las salidas estructuradas que se pasan a YAML
+YAML_SOURCES = ("glaive_function_responses", "injecagent", "synthetic_key_injection", "synthetic_api_json")
+
+
+def to_agentdojo_yaml(text: str) -> str:
+    """Misma función que AgentDojo (agent_pipeline/tool_execution.py, tool_result_to_str):
+    yaml.safe_dump con sus opciones por defecto (claves en orden alfabético, textos largos
+    partidos en varias líneas, lo no ASCII escapado) y .strip(). Solo la forma: ningún texto suyo."""
+    return yaml.safe_dump(json.loads(text)).strip()
+
+
+def yamlify(rows: list[dict], rejected: list[dict]) -> list[dict]:
+    """Pasa a YAML ~YAML_SHARE de las salidas JSON de YAML_SOURCES (elección estable por hash del
+    texto, ambas etiquetas, los tres splits). Si la versión YAML no pasa los criterios de calidad
+    se conserva la JSON (y el motivo queda en rejected.csv como yaml_*)."""
+    out = []
+    for r in rows:
+        if r["source"] in YAML_SOURCES and sources.stable_bucket(r["text"], 100) < YAML_SHARE * 100:
+            try:
+                y = dict(r, text=normalize(to_agentdojo_yaml(r["text"])), format="yaml")
+            except ValueError:
+                out.append(r)
+                continue
+            issues = quality_issues(y)
+            if issues:
+                rejected.append(dict(y, reason="yaml_" + "+".join(issues)))
+                out.append(r)
+            else:
+                out.append(y)
+        else:
+            out.append(r)
+    return out
 
 
 def quality_issues(row: dict) -> list[str]:
@@ -298,6 +360,16 @@ def report(final: list[dict], rejected: list[dict], n_input: int) -> str:
     for c in cats:
         L.append(f"| {c} | " + " | ".join(str(sum(1 for r in final if r['split'] == s and r['category'] == c)) for s in SPLITS) + " |")
 
+    L.append("\n### Formato YAML (como AgentDojo)\n")
+    L.append(f"{YAML_SHARE:.0%} de las salidas estructuradas de {', '.join(YAML_SOURCES)} van en YAML "
+             "(`yaml.safe_dump`, igual que AgentDojo).\n")
+    L.append("| Split | Ataques en YAML | Legítimos en YAML | `key_injection` en YAML |")
+    L.append("|---|---|---|---|")
+    for s in SPLITS:
+        y = [r for r in final if r["split"] == s and r.get("format") == "yaml"]
+        L.append(f"| {s} | {sum(r['label'] == 'attack' for r in y)} | {sum(r['label'] == 'benign' for r in y)} | "
+                 f"{sum(r['category'] == 'key_injection' for r in y)} |")
+
     L.append("\n## Descartes por criterio\n")
     reasons = sorted({r["reason"] for r in rejected})
     srcs = sorted({r["source"] for r in rejected})
@@ -398,6 +470,9 @@ def main() -> None:
         r = dict(r, text=normalize(r["text"]))
         issues = quality_issues(r)
         (rejected.append(dict(r, reason="+".join(issues))) if issues else clean.append(r))
+
+    # Una parte de las salidas estructuradas en YAML, el formato de AgentDojo (docs/algorithm.md).
+    clean = yamlify(clean, rejected)
 
     final = balance(clean, rng, rejected)
 

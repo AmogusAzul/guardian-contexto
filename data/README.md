@@ -18,7 +18,7 @@ Dueño: **Datos**. Formato en el Contrato 3 de `docs/architecture.md`.
 python data/build.py   # CSV + JSONL + QUALITY.md + rejected.csv (descarga lo que falte a data/raw/)
 ```
 
-Solo librería estándar, determinista. Con `data/pools/` presente solo descarga archivos pequeños (InjecAgent, NotInject, correos legítimos de LLMail).
+Librería estándar más **PyYAML** (para las salidas en YAML; también la usa `guard/chunking.py`: `pip install pyyaml`). Determinista. Con `data/pools/` presente solo descarga archivos pequeños (InjecAgent, NotInject, correos legítimos de LLMail).
 
 ## Fuentes y split
 
@@ -74,6 +74,14 @@ permitido, info = check(
 Fuentes: InjecAgent y Glaive (prompt, herramienta y argumentos reales), escenario de correo de LLMail (2–3 correos legítimos más, en los ataques, un correo de un atacante real) y sintéticos.
 
 **Formato de las respuestas** (el guardián recorre claves y rutas del JSON, ver `docs/check-contract.md`): InjecAgent, Glaive y `api_json` son **JSON válido** (las plantillas de InjecAgent venían como diccionarios de Python y se convierten; los `api_json` compuestos van como lista JSON). Correos, documentos, chats, etc. son texto plano. En InjecAgent, `injected_path` da la ruta del campo inyectado (p. ej. `$.product_details.reviews[0].review_content`).
+
+## Salidas en YAML (formato de AgentDojo)
+
+AgentDojo, el examen final, devuelve las salidas de sus herramientas en YAML: `yaml.safe_dump(...).strip()`, con claves en orden alfabético, textos largos partidos en varias líneas y lo no ASCII escapado. Para que el guardián vea ese formato al entrenar y al calibrar, `pipeline.yamlify` convierte con **la misma función** el 35 % de las salidas estructuradas (Glaive, InjecAgent, `key_injection`, `api_json`). La elección es estable (por hash del texto), con ambas etiquetas y en los tres splits; ningún texto viene de AgentDojo.
+
+- **Cantidad:** unas 620 filas en YAML en los CSV y 245 casos en `mcp_*.jsonl`, marcados con `output_format = "yaml"` (los demás, `json` o `text`). Los números por split están en `QUALITY.md`.
+- **`injected_text`** se verifica dentro de los valores ya leídos del YAML, porque el texto partido en líneas o escapado no aparece tal cual. `injected_path` sigue valiendo: el árbol es el mismo.
+- **Hallazgo:** el guardián lee como texto el YAML con una sola clave raíz y el YAML plano, y pierde la estructura (ver `docs/chunking-findings.md`, hallazgo 4).
 
 ## Ataques en las claves del JSON (`key_injection`)
 
