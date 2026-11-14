@@ -4,8 +4,7 @@ check() sigue el flujo de docs/algorithm.md, un módulo por paso:
 
     chunking -> embedding -> attack + drift -> decision -> rebuild
 
-GUARD_MOCK=1 usa el mock de palabras clave (guard/mock.py, sin dependencias) mientras
-los pasos no estén escritos.
+GUARD_MOCK=1 usa el mock de palabras clave (guard/mock.py, sin dependencias).
 """
 
 from __future__ import annotations
@@ -13,8 +12,7 @@ from __future__ import annotations
 import os
 import time
 
-from guard import attack, chunking, decision, drift, embedding, rebuild
-from guard.drift import ToolCall
+from guard.toolcall import ToolCall
 
 ORIGENES = ("herramienta", "manifiesto", "usuario")
 
@@ -28,16 +26,20 @@ def check(
     """Contrato 1 (docs/architecture.md): devuelve (permitido, info)."""
     if origen not in ORIGENES:
         raise ValueError(f"origen desconocido: {origen!r}; usar uno de {ORIGENES}")
+    # Importación aquí: con GUARD_MOCK=1 el paquete se importa sin numpy, PyYAML ni el modelo.
+    from guard import attack, chunking, decision, drift, embedding, rebuild
+
     inicio = time.perf_counter()
 
     doc, chunks = chunking.chunk(texto)
     vectors = embedding.embed([c.text for c in chunks])
     attack_scores = attack.score(chunks, vectors)
     # El mensaje del usuario es la tarea: medir su desvío contra sí mismo no tiene sentido.
-    drift_scores = drift.score(
+    refs = drift.percentiles(
         chunks, vectors, None if origen == "usuario" else tarea, herramienta
     )
-    flagged = decision.decide(chunks, attack_scores, drift_scores)
+    drift_scores = drift.from_percentiles(refs)
+    flagged = decision.decide(chunks, attack_scores, drift_scores, refs)
     texto_limpio = rebuild.rebuild(doc, [chunks[i] for i in flagged])
 
     marcados = [

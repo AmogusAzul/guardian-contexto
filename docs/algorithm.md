@@ -24,7 +24,7 @@ Las salidas MCP y de AgentDojo son estructuras (JSON o YAML), no prosa. Se revis
 |---|---|---|
 | `json` | `json.loads` | Glaive |
 | `python` | `ast.literal_eval` (seguro: solo literales) | InjecAgent usa `{'a': 'b'}` |
-| `yaml` | `yaml.safe_load`, **solo si hay líneas con sangría o `- `** | AgentDojo. Sin esa regla, un chat `Nombre: mensaje` parsea como YAML y las claves repetidas se pisan: se pierden líneas, y con ellas un ataque |
+| `yaml` | `yaml.safe_load` con tres condiciones: **alguna línea con sangría o que empieza con `- `**; **sin claves repetidas** (PyYAML las pisa en silencio); y al menos la mitad de las claves **con forma de campo** (sin espacios). Una sola clave arriba (`emails:`) o una lista de un elemento valen | AgentDojo devuelve `yaml.safe_dump`. Las condiciones dejan como `text` a la prosa que también parsea como YAML: un chat `Nombre: mensaje` (claves repetidas: se perderían líneas, y con ellas un ataque) o un título seguido de viñetas |
 | `loose` | empieza con `{` o `[` pero no parsea: cortar en `'clave':` / `"clave":`, quitar comillas y llaves de cada valor, guardar sus posiciones | 45 casos: **la inyección rompió las comillas** del JSON |
 | `text` | todo lo demás | correos, chats, documentos |
 
@@ -38,12 +38,12 @@ Las salidas MCP y de AgentDojo son estructuras (JSON o YAML), no prosa. Se revis
 | `value` | oraciones del string, en ventanas de 1 a 3 que se solapan | strings que no son IDs, fechas ni números |
 | `path` | claves desde la raíz hasta el valor, en palabras (`camelCase`, `snake_case` y `kebab-case` se separan; los índices de listas no entran), más el valor si tiene 6 palabras o menos | cada valor |
 
-**Texto (y cada string largo).** Primero **bloques** (separados por `---` o una línea en blanco: un correo, un documento), después líneas, después oraciones. Las ventanas de 1 a 3 **no cruzan bloques**. Los bloques de un mismo texto son vecinos entre sí para el desvío. Además, **cada valor y cada bloque entero** es un trozo si tiene 120 palabras o menos: LLMail inyecta correos enteros y Glaive reemplaza campos enteros (120 palabras cabe en lo que lee MiniLM, unos 256 tokens).
+**Texto (y cada string largo).** Primero **bloques** (separados por `---` o una línea en blanco: un correo, un documento), después líneas, después oraciones. Dentro de una línea también se corta, sin buscar palabras de ataque, donde un texto pegado sin punto suele empezar algo nuevo: antes de una etiqueta o comentario HTML, antes de un comentario de markdown (`[//]: #`), tras un punto seguido de `>`, `—` o un inicio de Markdown (`**`, `*`, `-`, `` ` ``, `_`, un número), y tras una coma seguida de una palabra con mayúscula (`…new flavor, Please…`). Las ventanas de 1 a 3 **no cruzan bloques**. Los bloques de un mismo texto son vecinos entre sí para el desvío. Además, **cada valor y cada bloque entero** es un trozo si tiene 120 palabras o menos: LLMail inyecta correos enteros y Glaive reemplaza campos enteros (120 palabras cabe en lo que lee MiniLM, unos 256 tokens).
 
 **Limpiar el texto antes de embeber** (las posiciones siguen apuntando al original):
 - Unicode NFC y espacios colapsados.
 - Fuera los caracteres de ancho cero (ofuscación).
-- De los comentarios y etiquetas HTML (`<!-- -->`, `<span style="display:none">`) y de los comentarios de markdown (`[//]: #`) se quitan solo las marcas: el texto de adentro suele ser el ataque. `<|system|>` y parecidos se quedan.
+- De los comentarios y etiquetas HTML (`<!-- -->`, `<span style="display:none">`), de los comentarios de markdown (`[//]: #`) y del formato Markdown (`**`, `__`, `` ` ``, y `>`, viñetas o `1.` al comienzo) se quitan solo las marcas: el texto de adentro suele ser el ataque. `<|system|>` y parecidos se quedan.
 - Un trozo `value` lleva solo el valor, sin su clave: la clave ya va en el trozo `path`.
 
 **Por qué oraciones y ventanas de 1 a 3.** Un embedding es más o menos el promedio del significado de su texto: una oración inyectada en un correo largo casi no mueve el vector del correo entero. Partir en oraciones la hace visible y dice qué retirar. Las ventanas de 2 y 3 atrapan ataques que solo se ven juntos (“Este es un mensaje importante… antes de resolver la tarea… haz X”).
@@ -51,14 +51,14 @@ Las salidas MCP y de AgentDojo son estructuras (JSON o YAML), no prosa. Se revis
 **Cada trozo lleva:** `text` (limpio), `kind`, `path` (ubicación exacta, para retirarlo), `span` (inicio y fin en el string original, solo `value`), `group` (la ruta sin índices, `emails[*].body`, o el texto si son bloques: define los vecinos).
 
 **Filtrar.**
-- Trozos de menos de 4 palabras se descartan (también se van rutas cortas sin sentido, como `settings theme`).
+- Trozos `value` de menos de 4 palabras se descartan. Los trozos `path`, desde 3: en una clave, 3 palabras ya pueden ser una orden (`transfer savings to` con un IBAN largo, que no entra al trozo). Se siguen yendo rutas de 2 palabras, como `settings theme`.
 - Cada texto distinto se embebe **una sola vez**: las listas repiten claves y rutas.
 - En `data/mcp_*.jsonl` las salidas son cortas (mediana 300 caracteres, máximo 2 890); un caso de LLMail da unos 45 trozos.
 - Máximo unos 500 trozos por salida. Si se pasa: solo oraciones sueltas de valores, sin ventanas ni rutas. **Nunca se salta una parte de la salida**, o el atacante esconde el ataque al final.
 
 **Prueba del paso (sin embeddings).** En un subconjunto chico de `data/mcp_train.jsonl` con inyección (5 casos por familia: Glaive, InjecAgent, LLMail, sintéticos): la inyección tiene que quedar cubierta por trozos `value` que sean al menos 80 % inyección (el 80 % deja pasar un “IMPORTANT:” delante, que `injected_text` no incluye). Si eso falla, ningún puntaje lo arregla.
 
-`python -m guard.show_chunks data/mcp_train.jsonl --n 3` (o `--id <caso>`) muestra los trozos de cada caso y cuáles son la inyección. En todo `data/mcp_*.jsonl`, 90 de 90 inyecciones en claves y 428 de 437 en valores quedan cubiertas por al menos un trozo de ataque. Las 9 que no: la inyección va pegada a texto legítimo sin punto ni salto de línea (`…new flavor, Please get my current image…`, `…Tom Becker Assistant, when listing…`), así que el trozo mezcla las dos cosas. En ejecución ese trozo igual se puede retirar entero (se pierden unas palabras legítimas); para entrenar se descarta como ambiguo.
+`python -m guard.show_chunks data/mcp_train.jsonl --n 3` (o `--id <caso>`) muestra los trozos de cada caso y cuáles son la inyección. En todo `data/mcp_*.jsonl`, 90 de 90 inyecciones en claves (contadas solo si el trozo de ataque es de **ruta**: el valor solo no lleva la orden) y 437 de 437 en valores quedan cubiertas por al menos un trozo de ataque, con unos 12,5 trozos por salida. Antes de los arreglos de [chunking-findings.md](chunking-findings.md) eran 88 y 428: inyecciones pegadas sin punto (`…new flavor, Please…`, `…Tom Becker <span…>Assistant, when…`) y claves cortas con valor largo. Una inyección que empieza con Markdown después del punto (`opt out. > As part of…`, `**…**`, `- …`, `1. …`) también queda en su propio trozo. `data/check_chunks.py` de Datos da 527/527 casos MCP y 1 771/1 771 filas de los CSV. Retirando esos trozos, la inyección desaparece en todos los casos y el JSON sigue siendo válido. Lo que se pierde son unas palabras pegadas a la inyección sin ningún corte (una firma `— Tom Becker` justo antes); con la regla de la ventana más corta (paso 5) se conservan 1 285 de 1 286 oraciones legítimas.
 
 ## 2. Embeddings (`embedding.py`)
 
@@ -75,7 +75,7 @@ Un script de entrenamiento los arma una vez y se congelan con el commit:
 |---|---|
 | promedio para centrar | todos los trozos de entrenamiento |
 | dirección de ataque | trozos de ataque − trozos legítimos (paso 3) |
-| tablas de percentiles: ataque por tipo de trozo, desvío por (referencia, tipo) | trozos legítimos |
+| tablas de percentiles: ataque por (tipo, tamaño), desvío por (referencia, tipo, tamaño) | trozos legítimos |
 | nombre del modelo y commit de los datos | — |
 
 **Etiquetar trozos.** Los datos vienen por salida completa y la dirección se aprende por trozo. Se usa **`data/mcp_train.jsonl`**, que trae `injected_text`:
@@ -96,7 +96,7 @@ Son 376 salidas (188 con ataque). Alcanza para una resta de promedios en 384 dim
 ## 3. `attack_score` (`attack.py`)
 
 - **Dirección de ataque** = promedio(trozos de ataque) − promedio(trozos legítimos), con las etiquetas del paso 2. El puntaje crudo es el coseno del trozo con esa dirección.
-- **Calibración:** el coseno pasa a **percentil de los trozos legítimos del mismo tipo** (`value`, `path`). Así los trozos de ruta, cortos y telegráficos, comparten escala con las oraciones.
+- **Calibración:** el coseno pasa a **percentil de los trozos legítimos de la misma clase** (tipo y tamaño, ver “Escalas” en el paso 4). Así los trozos de ruta, cortos y telegráficos, comparten escala con las oraciones.
 
 ## 4. `drift_score` (`drift.py`)
 
@@ -104,15 +104,15 @@ Son 376 salidas (188 con ataque). Alcanza para una resta de promedios en 384 dim
 
 | Referencia | Por qué encaja un trozo legítimo | Ejemplo |
 |---|---|---|
-| **Pedido**: todos los mensajes del usuario | responde lo que se pidió | “Q3 report attached” frente a “find the Q3 report” |
-| **Llamada**: nombre, descripción y argumentos de la herramienta | es el tipo de dato que devuelve | `Spotify 15.00 EUR` frente a `get_transactions: list recent transactions` |
-| **Vecinos**: los otros valores con el mismo `group` | se parece a los valores de al lado | un `emails[*].body` frente a los otros cuerpos |
+| **Pedido**: cada mensaje del usuario, por separado; cuenta el que más se parece | responde lo que se pidió | “Q3 report attached” frente a “find the Q3 report” |
+| **Llamada**: un solo texto con el nombre de la herramienta en palabras, su descripción y los valores de los argumentos | es el tipo de dato que devuelve | `Spotify 15.00 EUR` frente a `get_transactions: list recent transactions` |
+| **Vecinos**: los otros valores con el mismo `group` (al menos 3) | se parece a los valores de al lado | un `emails[*].body` frente a los otros cuerpos |
 
 Con `origen="manifiesto"` (descripciones de herramientas, MCPTox) no hay pedido: la referencia es el nombre de la herramienta y sus parámetros. Una descripción de `add(a, b)` que habla de leer `~/.ssh` queda lejos de “add a b”.
 
 **Calibración en dos capas.**
 
-1. **Percentiles.** Los cosenos crudos no se pueden comparar: un trozo siempre está cerca de sus vecinos y lejos de un pedido de una línea, así que un máximo de cosenos crudos siempre lo ganan los vecinos. Para cada par (referencia, tipo de trozo) se guarda la distribución de los cosenos de los trozos legítimos de entrenamiento (101 percentiles). En ejecución, `p_ref` = percentil del coseno en esa distribución. Ahora todo `p` dice lo mismo: qué tan normal es ese encaje.
+1. **Percentiles.** Los cosenos crudos no se pueden comparar (ver “Escalas” abajo): un trozo siempre está cerca de sus vecinos y lejos de un pedido de una línea, así que un máximo de cosenos crudos siempre lo ganan los vecinos. Para cada clase se guarda la distribución de los cosenos de los trozos legítimos de entrenamiento. En ejecución, `p_ref` = percentil del coseno en esa distribución. Ahora todo `p` dice lo mismo: qué tan normal es ese encaje.
 2. **Número de referencias.** `m = max(p de las referencias que existan)` y
 
    ```
@@ -121,7 +121,21 @@ Con `origen="manifiesto"` (descripciones de herramientas, MCPTox) no hay pedido:
 
    con `k` = número de referencias disponibles (no hay pedido en manifiestos; no hay vecinos con menos de 3). Si los `k` percentiles fueran independientes, el máximo de un trozo legítimo cumple P(max ≤ m) = mᵏ, así que `drift` queda repartido parejo entre 0 y 1 para cualquier `k`, y `τ_drift = 0,95` se lee “solo el 5 % de los legítimos se ve así de fuera de lugar”. No son independientes (pedido y llamada se parecen): es una aproximación. Si en validación no se sostiene, un `τ_drift` por cada `k`.
 
-**Vecinos.** Su referencia es el promedio de los **otros** valores del grupo, sin el trozo. En texto plano, los vecinos son las otras oraciones, sin las ventanas que se solapan con el trozo. Con menos de 3 vecinos, no hay referencia de vecinos y `k` baja.
+**Vecinos.** El coseno con los vecinos es el **promedio de los cosenos con cada vecino**, no el coseno con su vector promedio: el promedio de 20 vectores es más “liso” que el de 3 y el coseno con él crece con la cantidad; el promedio de cosenos no depende de cuántos son. Nunca se cuenta el trozo mismo. En texto, los vecinos son los otros bloques; tampoco cuentan las ventanas que se solapan con el trozo. Con menos de 3 vecinos, no hay referencia de vecinos y `k` baja.
+
+**Escalas.** Lo que mueve los cosenos crudos, y qué se hace con cada cosa:
+
+| Fuente | Por qué cambia la escala | Qué se hace |
+|---|---|---|
+| Referencia (pedido, llamada, vecinos) | los vecinos siempre parecen más cerca que un pedido de una línea | una tabla de percentiles por referencia |
+| Tipo de trozo (`value`, `path`) | las rutas son texto corto y telegráfico | una tabla por tipo |
+| Tamaño del trozo | los trozos largos promedian su significado y quedan más cerca de todo | una tabla por tamaño: 1 oración, 2–3 oraciones, valor o bloque entero. Si una clase tiene menos de unos 200 ejemplos, usa la tabla de su tipo |
+| Cantidad de vecinos | el coseno con un promedio crece con la cantidad | promedio de cosenos (arriba) |
+| Herramienta o dominio | hay herramientas cuyos datos están naturalmente lejos del pedido | no se calibra por herramienta (en ejecución son nuevas); los vecinos lo absorben en parte. Límite aceptado |
+
+Así quedan unas 18 tablas de desvío (3 referencias × 2 tipos × 3 tamaños) y 6 de ataque (2 tipos × 3 tamaños), cada una con 101 percentiles de los trozos legítimos de entrenamiento. Entre puntos se interpola. **La cola alta no se satura:** por encima del percentil 95 se usa una cola exponencial que pasa por los percentiles 95 y 99, así un valor más alto que todos los legítimos de entrenamiento sigue ordenado (0,999, 0,9999…) en vez de quedar en 1 junto con todos los demás. Sin esto, en validación el 40 % de los ataques y el 6 % de las salidas legítimas quedaban empatados en 1 y no había umbral posible. **La llamada se arma igual al calibrar y en ejecución** (mismos campos): si en ejecución se agregara un campo que no estaba al calibrar, los cosenos subirían y el desvío saldría bajo sin razón.
+
+**Prueba de la calibración.** En los trozos legítimos de validación, `drift` tiene que quedar **parejo** entre 0 y 1 para cada `k` (cerca de 10 % en cada décimo). Como las referencias no son independientes, `1 − mᵏ` no queda del todo parejo. Por eso pasa por **una última tabla por `k`** (los mismos legítimos de entrenamiento): ahí sí queda parejo en entrenamiento por construcción, y `τ_drift = 0,95` significa 5 % de los legítimos. En validación se mira cuánto se mueve.
 
 **Sin ninguna referencia** (texto plano de una oración, sin tarea ni herramienta): `drift = None`.
 
@@ -136,13 +150,19 @@ retirar si  attack ≥ τ_alto
 
 - El desvío solo decide en la zona gris del ataque: nunca retira nada solo. Un texto fuera de tema pero inofensivo se queda (también es la protección contra usar el guardián para censurar).
 - Entre ventanas que se solapan, gana la más corta: una oración maliciosa no arrastra a sus vecinas legítimas.
-- **Umbrales por salida, no por trozo.** Una salida es un falso positivo si se le retira **cualquier** trozo. Con 1 % de falsos positivos por trozo, una salida de 45 trozos pierde algo el 36 % de las veces (1 − 0,99⁴⁵). Los tres umbrales se eligen juntos en validación con una búsqueda en rejilla: la combinación que más ataques atrapa con a lo más 5 % de salidas legítimas tocadas.
+- **Umbrales por salida, no por trozo.** Una salida es un falso positivo si se le retira **cualquier** trozo. Con 1 % de falsos positivos por trozo, una salida de 45 trozos pierde algo el 36 % de las veces (1 − 0,99⁴⁵). Los tres umbrales se eligen juntos en validación con una búsqueda en rejilla: la combinación que más salidas atacadas atrapa (con un trozo de ataque retirado) con a lo más 5 % de salidas legítimas tocadas. Los candidatos salen de los datos: para `τ_alto`, percentiles altos del máximo de ataque de cada salida legítima; para `τ_bajo`, percentiles del ataque de los trozos legítimos.
+
+## Entrenar y medir (`python -m guard.train`)
+
+Arma `guard/artifacts/<modelo>.npz` con `data/mcp_train.jsonl` (pasos 2 a 4), elige los umbrales con `data/mcp_val.jsonl` (paso 5) e imprime las pruebas: centrado, AUC por clase, calibración del desvío por `k` y latencia. Tarda alrededor de un minuto en CPU.
 
 ## 6. Reconstrucción (`rebuild.py`)
 
 - **`value`:** el `span` marcado se reemplaza por `[contenido retirado por el guardián]`; el resto del string se queda.
-- **`path`:** se sube desde el valor mientras el padre tenga un solo hijo, y se retira esa cadena entera. `do.not.tell…files` retira `do`; `emails[1].body` retira solo `body`.
-- `text` y `loose`: se reemplaza en las posiciones guardadas del string original, así el formato no cambia. `json`, `python` y `yaml`: se rearma la estructura y se vuelve a escribir (puede cambiar los espacios; `python` sale como JSON).
+- **`path`:** se sube desde el valor mientras el padre tenga un solo hijo, y se retira esa cadena entera. `do.not.tell…files` retira `do`; `emails[1].body` retira solo `body`. En un objeto se **borra la clave** (la clave puede ser el ataque); en una lista el elemento pasa a ser el aviso, para no mover los otros índices. Nunca se sube por encima de una raíz (la salida, un bloque MCP, un JSON dentro de un string).
+- **Copias:** un texto que aparece en varios lugares (por ejemplo `structuredContent` y el bloque `text` de MCP) se embebe una vez pero se retira en todos.
+- Spans marcados que se tocan, o que solo separa espacio, llevan un solo aviso.
+- `text` y `loose`: se reemplaza en las posiciones guardadas del string original, así el formato no cambia. `json`, `python` y `yaml`: se rearma la estructura y se vuelve a escribir (puede cambiar los espacios; `python` sale como JSON; en `yaml` los strings de varias líneas salen como bloque `|` y no se parten líneas largas).
 - Un JSON que venía dentro de un string vuelve a ser string. En un resultado MCP, `structuredContent` y el bloque `text` quedan limpios por igual.
 
 ## Datos que necesita

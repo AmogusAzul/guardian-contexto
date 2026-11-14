@@ -15,4 +15,4 @@ guard = ["numpy", "sentence-transformers", "model2vec", "pyyaml"]
 packages = ["guard"]
 
 [tool.setuptools.package-data]
-guard = ["artifacts/*.json"]
+guard = ["artifacts/*.npz"]

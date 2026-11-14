@@ -1,7 +1,7 @@
 """Paso 1: parte una salida de herramienta en trozos de texto plano (docs/algorithm.md, "1. Trozos").
 
 Autocontenido: biblioteca estándar y PyYAML. Nada de embeddings aquí.
-Parsers en orden: json, python (ast.literal_eval), yaml (solo con sangría o "- "), loose, text.
+Parsers en orden: json, python (ast.literal_eval), yaml (ver _yaml), loose, text.
 
 Para ver los trozos de los casos de data/ y cuáles son la inyección: guard/show_chunks.py.
 """
@@ -12,7 +12,7 @@ import ast
 import json
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 import yaml
@@ -24,6 +24,9 @@ Path = tuple[PathKey, ...]
 
 WINDOWS = (1, 2, 3)  # oraciones por ventana, en trozos de valor
 MIN_WORDS = 4  # trozos más cortos se descartan
+MIN_PATH_WORDS = (
+    3  # en una ruta, 3 palabras ya pueden ser una orden ("transfer savings to")
+)
 SHORT_VALUE_WORDS = 6  # hasta aquí el valor también entra al trozo de ruta
 MAX_CHUNKS = 500  # por encima: solo oraciones sueltas de valores
 WHOLE_MAX_WORDS = 120  # valores y bloques enteros hasta aquí también son un trozo
@@ -42,6 +45,8 @@ class Chunk:
         ""  # vecinos: ruta sin índices ("$.emails[*].body") o bloques de un texto
     )
     size: int = 0  # oraciones en la ventana (0 = valor o bloque entero, o ruta)
+    # otros lugares con el mismo texto (se embebe una vez, pero se retira en todos)
+    copies: tuple[tuple[Path, tuple[int, int] | None], ...] = ()
 
 
 @dataclass
@@ -83,20 +88,74 @@ def _parse(s: str) -> tuple[Format, Any, dict[str, tuple[int, int]]]:
                 return "python", v, {}
         except (ValueError, SyntaxError, MemoryError, RecursionError):
             pass
-    # Solo YAML de verdad: un chat "Nombre: mensaje" también parsea como YAML y las
-    # claves repetidas se pisan (se pierden líneas, y con ellas un ataque).
-    if any(line.startswith((" ", "\t", "- ")) for line in t.splitlines()[1:]):
-        try:
-            v = yaml.safe_load(t)
-            if isinstance(v, (dict, list)) and len(v) >= 2:
-                return "yaml", v, {}
-        except yaml.YAMLError:
-            pass
+    v = _yaml(t)
+    if v is not None:
+        return "yaml", v, {}
     if t[:1] in "{[":
         tree, spans = _loose(s)
         if tree:
             return "loose", tree, spans
     return "text", s, {}
+
+
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader que falla con claves repetidas: PyYAML las pisa en silencio."""
+
+
+def _no_duplicates(
+    loader: _StrictLoader, node: yaml.MappingNode, deep: bool = False
+) -> Any:
+    keys = [loader.construct_object(k, deep=deep) for k, _ in node.value]
+    if len(keys) != len({repr(k) for k in keys}):
+        raise yaml.constructor.ConstructorError(
+            None, None, "clave repetida", node.start_mark
+        )
+    return loader.construct_mapping(node, deep=deep)
+
+
+_StrictLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates
+)
+_IDENTIFIER = re.compile(r"^[\w.-]+$")
+
+
+def _yaml(t: str) -> dict | list | None:
+    """YAML de verdad (el de yaml.safe_dump, como en AgentDojo), o None si es prosa.
+
+    - Tiene estructura: alguna línea con sangría o que empieza con "- " (también la primera).
+    - Sin claves repetidas: un chat "Nombre: mensaje" parsea como YAML y las claves repetidas
+      se pisan, perdiendo líneas (y con ellas un ataque).
+    - Claves con forma de campo (sin espacios), al menos la mitad: "Lista de compras:" seguida
+      de viñetas es prosa, no datos.
+    Una sola clave arriba o una lista de un elemento sí valen: `{"emails": [...]}` es lo común.
+    """
+    lines = t.splitlines()
+    if not any(
+        line.startswith((" ", "\t", "- ")) for line in lines[1:]
+    ) and not t.startswith("- "):
+        return None
+    try:
+        v = yaml.load(
+            t, Loader=_StrictLoader
+        )  # SafeLoader: solo datos, nada se ejecuta
+    except yaml.YAMLError:
+        return None
+    if not isinstance(v, (dict, list)) or not v:
+        return None
+    keys = list(_keys(v))
+    if keys and sum(bool(_IDENTIFIER.match(str(k))) for k in keys) * 2 < len(keys):
+        return None
+    return v
+
+
+def _keys(node: Any):
+    if isinstance(node, dict):
+        for k, val in node.items():
+            yield k
+            yield from _keys(val)
+    elif isinstance(node, list):
+        for val in node:
+            yield from _keys(val)
 
 
 def _loose(s: str) -> tuple[dict[str, str], dict[str, tuple[int, int]]]:
@@ -124,8 +183,20 @@ def _loose(s: str) -> tuple[dict[str, str], dict[str, tuple[int, int]]]:
 
 _ZERO_WIDTH = re.compile("[\u200b-\u200f\u2060\ufeff]")
 _BLOCK = re.compile(r"\n[ \t]*-{3,}[ \t]*\n|\n[ \t]*\n")
-_SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'(<#\[])")
+# Cortes dentro de una línea. Además del fin de oración, cortes genéricos donde un texto pegado
+# sin punto suele empezar algo nuevo (en data/, ahí venían inyecciones pegadas a texto legítimo):
+_SENTENCE = re.compile(
+    # fin de oración, también antes de "> cita", "— firma" y Markdown (**, *, -, `, _, 1.)
+    r"(?<=[.!?])\s+(?=[A-Z\"'(<#\[>—*\-`_0-9])"
+    r"|\s+(?=<[a-zA-Z/!])"  # antes de una etiqueta o comentario HTML
+    r"|\s+(?=\[//\]:)"  # antes de un comentario de markdown
+    r"|(?<=,)\s+(?=[A-Z][a-z]+\s)"  # coma y una cláusula que empieza con mayúscula
+)
 _HTML_TAG = re.compile(r"</?[a-zA-Z][^<>]{0,200}>")  # no toca <|system|>
+_MD_INLINE = re.compile(r"\*\*|__|`")
+_MD_LINE_START = re.compile(
+    r"^[ \t]*(?:>+[ \t]*|[-*+][ \t]+|\d+[.)][ \t]+)", re.MULTILINE
+)
 _ABBREV = re.compile(
     r"\b(?:Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr|Inc|Ltd|Co|vs|etc|e\.g|i\.e|No|Fig)\.$"
 )
@@ -144,10 +215,12 @@ def clean(t: str) -> str:
     t = _HTML_TAG.sub(
         " ", t
     )  # <span style="display:none">…</span>: queda el texto de adentro
+    t = _MD_INLINE.sub(" ", t)  # **negrita**, __negrita__, `código`: queda el texto
+    t = _MD_LINE_START.sub("", t)  # "> cita", "- viñeta", "1. lista" al comienzo
     return re.sub(r"\s+", " ", t).strip()
 
 
-def _key_words(k: PathKey) -> str:
+def key_words(k: PathKey) -> str:
     k = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(k))
     k = re.sub(
         r"([A-Z]+)([A-Z][a-z])", r"\1 \2", k
@@ -232,7 +305,7 @@ def _walk(
             node = tree
     if isinstance(node, dict):
         for k, v in node.items():
-            _walk(v, (*path, k), [*keys, _key_words(k)], doc, out)
+            _walk(v, (*path, k), [*keys, key_words(k)], doc, out)
     elif isinstance(node, list):
         for i, v in enumerate(node):
             _walk(v, (*path, i), keys, doc, out)
@@ -306,11 +379,19 @@ def chunk(text: str) -> tuple[Document, list[Chunk]]:
                 node, root, [], doc, raw
             )  # las claves del sobre MCP no entran al texto
 
-    seen: set[tuple[str, str]] = set()
-    chunks = []
+    first: dict[tuple[str, str], int] = {}
+    chunks: list[Chunk] = []
     for c in raw:
-        if len(c.text.split()) >= MIN_WORDS and (c.kind, c.text) not in seen:
-            seen.add((c.kind, c.text))
+        if len(c.text.split()) < (MIN_PATH_WORDS if c.kind == "path" else MIN_WORDS):
+            continue
+        key = (c.kind, c.text)
+        if (
+            key in first
+        ):  # mismo texto en otro lugar: p. ej. structuredContent y el bloque text
+            i = first[key]
+            chunks[i] = replace(chunks[i], copies=(*chunks[i].copies, (c.path, c.span)))
+        else:
+            first[key] = len(chunks)
             chunks.append(c)
     if len(chunks) > MAX_CHUNKS:  # nunca se salta una parte: se quitan ventanas y rutas
         chunks = [c for c in chunks if c.kind == "value" and c.size == 1]
