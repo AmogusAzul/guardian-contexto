@@ -31,7 +31,6 @@ import shutil
 import statistics
 import subprocess
 import sys
-import time
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
@@ -120,45 +119,6 @@ class LLMReferencia(BasePipelineElement):
         return query, runtime, env, [*messages, msg], extra_args
 
 
-class ContadorTokensGemini:
-    """Envuelve client.models.generate_content: suma tokens y reintenta 429/500/503 con espera creciente.
-
-    AgentDojo no reintenta los ClientError de Google (el 429 lo es) y solo reintenta 3 veces los
-    errores del servidor: sin esto, con la capa gratuita o un modelo saturado los casos fallan."""
-
-    def __init__(self, client, reintentos: int = 8) -> None:
-        from google.genai import errors
-
-        self.entrada = self.salida = self.llamadas = self.esperas_429 = 0
-        original = client.models.generate_content
-
-        def generate_content(*args, **kwargs):
-            for intento in range(reintentos + 1):
-                try:
-                    r = original(*args, **kwargs)
-                    break
-                except errors.APIError as e:
-                    # 429: límite de peticiones; 500/503: modelo saturado ("high demand"), temporal.
-                    if getattr(e, "code", None) not in (429, 500, 503) or intento == reintentos:
-                        raise
-                    self.esperas_429 += 1
-                    espera = min(10 * 2**intento, 120)
-                    print(f"    {e.code} de Gemini: espero {espera}s (reintento {intento + 1}/{reintentos})")
-                    time.sleep(espera)
-            u = getattr(r, "usage_metadata", None)
-            if u is not None:
-                self.entrada += u.prompt_token_count or 0
-                self.salida += (u.candidates_token_count or 0) + (getattr(u, "thoughts_token_count", 0) or 0)
-            self.llamadas += 1
-            return r
-
-        client.models.generate_content = generate_content
-
-
-def es_gemini(modelo: str) -> bool:
-    return modelo.startswith("gemini")
-
-
 def llm_openai(modelo: str) -> tuple[BasePipelineElement, ContadorTokens]:
     import openai
     from agentdojo.agent_pipeline import OpenAILLM
@@ -166,24 +126,6 @@ def llm_openai(modelo: str) -> tuple[BasePipelineElement, ContadorTokens]:
     client = openai.OpenAI()
     contador = ContadorTokens(client)
     llm = OpenAILLM(client, modelo)
-    llm.name = modelo
-    return llm, contador
-
-
-def llm_gemini(modelo: str) -> tuple[BasePipelineElement, ContadorTokensGemini]:
-    """Gemini con clave de AI Studio (GEMINI_API_KEY), no Vertex AI como el CLI de AgentDojo.
-    Usa GeminiLLM (bench/gemini_llm.py), que conserva las thought signatures que exige Gemini 3."""
-    from agentdojo.models import MODEL_NAMES
-    from google import genai
-
-    from bench.gemini_llm import GeminiLLM
-
-    # Los ataques se dirigen al modelo por su nombre ("to you, <modelo>") y fallan si no lo conocen;
-    # AgentDojo 0.1.35 solo lista Gemini viejos. Se usa la misma frase que AgentDojo da a los Gemini.
-    MODEL_NAMES.setdefault(modelo, "AI model developed by Google")
-    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY") or os.environ["GOOGLE_API_KEY"])
-    contador = ContadorTokensGemini(client)
-    llm = GeminiLLM(modelo, client)
     llm.name = modelo
     return llm, contador
 
@@ -268,8 +210,6 @@ def info_guardian() -> dict:
 def correr_defensa(defensa: str, a, suite) -> dict:
     if a.offline:
         llm, contador = LLMReferencia(suite, a.modelo), None
-    elif es_gemini(a.modelo):
-        llm, contador = llm_gemini(a.modelo)
     else:
         llm, contador = llm_openai(a.modelo)
     pipeline, det = construir(defensa, llm, a.modelo)
@@ -375,10 +315,7 @@ def main() -> None:
         from dotenv import load_dotenv
 
         load_dotenv(RAIZ / ".env")
-        if es_gemini(a.modelo):
-            if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
-                sys.exit("Falta GEMINI_API_KEY (variable de entorno o .env). Para probar sin API: --offline")
-        elif not os.environ.get("OPENAI_API_KEY"):
+        if not os.environ.get("OPENAI_API_KEY"):
             sys.exit("Falta OPENAI_API_KEY (variable de entorno o .env). Para probar sin API: --offline")
     else:
         a.logdir = a.logdir / "offline"

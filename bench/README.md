@@ -31,13 +31,6 @@ Opciones útiles: `-d <defensa>` (repetible), `--modelo`, `--ataque`, `--sin-uti
 
 Cada defensa escribe `results/<fecha>-<commit>-agentdojo-<suite>-<defensa>.json` y una línea en `results/summary.csv`. Las trazas completas quedan en `runs/` (no se versiona). Si se repite un comando, AgentDojo reutiliza los casos ya corridos: no se pagan dos veces, pero esos casos no suman tokens ni latencias del guardián (el JSON lo dice). Para una corrida limpia y completa, `--force-rerun` o un `--logdir` nuevo.
 
-## Claves y modelos
+## LLM del agente
 
-Las claves van en `.env` en la raíz (está en `.gitignore`), nunca en el repo:
-
-```
-OPENAI_API_KEY=sk-...          # modelos de OpenAI (por defecto gpt-4o-mini-2024-07-18)
-GEMINI_API_KEY=AIza...         # modelos de Gemini con clave de AI Studio: --modelo gemini-...
-```
-
-Con `--modelo gemini-…` el script crea el cliente con la clave de AI Studio (el CLI de AgentDojo solo usa Vertex AI), registra el modelo para que el ataque pueda nombrarlo ("AI model developed by Google", la misma frase que AgentDojo usa para Gemini) y reintenta los errores 429 de límite de peticiones, que AgentDojo no reintenta. **Todas las defensas deben correrse con el mismo modelo.**
+Pendiente de definir: el agente será un LLM local (Qwen3 8B). Si se usa una clave, va en `.env` en la raíz (está en `.gitignore`), nunca en el repo. **Todas las defensas deben correrse con el mismo modelo.**

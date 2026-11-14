@@ -7,8 +7,6 @@ La hackathon exige citar todo código, dataset, librería o fragmento generado c
 | AgentDojo 0.1.35 (benchmark v1.2.2) | https://github.com/ethz-spylab/agentdojo | MIT | `bench/` |
 | deberta-v3-base-prompt-injection-v2 (línea base DeBERTa, la carga AgentDojo) | https://huggingface.co/protectai/deberta-v3-base-prompt-injection-v2 | Apache-2.0 | `bench/run_agentdojo.py` (`transformers_pi_detector`) |
 | pytest | https://pytest.org | MIT | `tests/` |
-| google-genai (cliente de Gemini; dependencia de AgentDojo) | https://github.com/googleapis/python-genai | Apache-2.0 | `bench/run_agentdojo.py` (`--modelo gemini-…`) |
-| Gemini (Google), LLM del agente en la evaluación si se usa `--modelo gemini-…` | https://ai.google.dev | términos de la API de Gemini | `bench/run_agentdojo.py` |
 | Adaptadores y pruebas de AgentDojo (`bench/*.py`, `tests/test_bench.py`) | Generados con Claude Code (claude-opus-5-5) | — | `bench/`, `tests/` |
 | MCPTox | https://github.com/zhiqiangwang4/MCPTox-Benchmark | sin licencia declarada; solo como datos | `bench/` (si se usa) |
 | LLMail-Inject (Abdelnabi et al., Microsoft, 2025): ataques humanos `api_triggered` y correos legítimos | https://huggingface.co/datasets/microsoft/llmail-inject-challenge | MIT | `data/*.csv`, `data/mcp_*.jsonl`, `data/pools/` (destino `contact@contact.com` reemplazado por correos ficticios) |
