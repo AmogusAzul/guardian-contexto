@@ -11,27 +11,17 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import Any
+from collections.abc import Sequence
 
 import numpy as np
 
 from guard import embedding, reference
 from guard.chunking import Chunk, key_words
+from guard.toolcall import ToolCall
 
 MIN_PEERS = 3  # con menos vecinos, no hay referencia de vecinos
 REFERENCES = ("request", "tool", "peers")
 _TURN = re.compile(r"\s*\b(USER|ASSISTANT|SYSTEM)\s*:\s*")
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """La llamada que produjo la salida: una de las referencias del desvío."""
-
-    name: str
-    description: str = ""
-    arguments: Mapping[str, Any] = field(default_factory=dict)
 
 
 def user_messages(task: str | None) -> list[str]:

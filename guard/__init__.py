@@ -4,8 +4,7 @@ check() sigue el flujo de docs/algorithm.md, un módulo por paso:
 
     chunking -> embedding -> attack + drift -> decision -> rebuild
 
-GUARD_MOCK=1 usa el mock de palabras clave (guard/mock.py, sin dependencias) mientras
-los pasos no estén escritos.
+GUARD_MOCK=1 usa el mock de palabras clave (guard/mock.py, sin dependencias).
 """
 
 from __future__ import annotations
@@ -13,8 +12,7 @@ from __future__ import annotations
 import os
 import time
 
-from guard import attack, chunking, decision, drift, embedding, rebuild
-from guard.drift import ToolCall
+from guard.toolcall import ToolCall
 
 ORIGENES = ("herramienta", "manifiesto", "usuario")
 
@@ -28,6 +26,9 @@ def check(
     """Contrato 1 (docs/architecture.md): devuelve (permitido, info)."""
     if origen not in ORIGENES:
         raise ValueError(f"origen desconocido: {origen!r}; usar uno de {ORIGENES}")
+    # Importación aquí: con GUARD_MOCK=1 el paquete se importa sin numpy, PyYAML ni el modelo.
+    from guard import attack, chunking, decision, drift, embedding, rebuild
+
     inicio = time.perf_counter()
 
     doc, chunks = chunking.chunk(texto)
