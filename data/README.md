@@ -9,6 +9,7 @@ Dueño: **Datos**. Formato en el Contrato 3 de `docs/architecture.md`.
 | `QUALITY.md` | Reporte generado: composición, descartes por criterio, atajos medidos y fugas |
 | `rejected.csv` | Cada fila descartada con su motivo (auditoría) |
 | `paraphrase.csv` | Conjunto de robustez: inyecciones de test reescritas (literal, leve, sin palabras de alerta) y legítimos con la misma forma. Solo evaluación |
+| `hard_cases.csv` | Errores del guardián actual en train y val (`python data/hard_cases.py`): falsos negativos (`FN`), falsos positivos (`FP`) y ataques marcados en el trozo equivocado (`FN_trozo`), ordenados de más a menos difícil. Nunca con test ni paráfrasis |
 | `mcp_manifests.jsonl` | Descripciones de herramientas MCP limpias y envenenadas (MCPTox + ToolACE) para `origen="manifiesto"`. Se genera en local, no se sube |
 | `pools/` | Muestras ya filtradas de LLMail-Inject, Glaive y ToolACE (evita bajar ~800 MB) |
 | `raw/` | Descargas crudas (no se suben; `.gitignore`) |
