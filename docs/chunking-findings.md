@@ -2,6 +2,21 @@
 
 **Para:** Algoritmo. **De:** Datos. **Fecha:** 2026-11-14.
 
+## Estado actual (re-medido con el guardián de `master`, después de sus cambios)
+
+| # | Hallazgo | Estado | Medición |
+|---|---|---|---|
+| 1 | Inyección después de una coma | ✅ Resuelto (`12e2520`, cortes dentro de una línea) | InjecAgent: 67/67 casos MCP con trozo `attack` (antes 62/65) |
+| 2 | Clave corta con valor largo | ✅ Resuelto (`66af3cb`, rutas de 3 palabras) | Los casos `-1084` y `-1298` ya tienen su trozo `path` |
+| 3 | Markdown justo después del punto | ✅ Resuelto (`66af3cb`, corte antes de Markdown) | `> …` y `**…**` quedan en un trozo propio |
+| 4 | YAML leído como texto | ⚠️ Parcial (`3fc2b5d`, se acepta 1 clave raíz) | 81 % del YAML reconocido; el **YAML plano** sigue como texto: 4 ataques en claves y 2 de Glaive sin trozo `attack`. Ver [yaml-findings.md](yaml-findings.md) |
+
+**Total hoy:** 523/527 casos MCP (99,2 %) y 1.765/1.771 filas de los CSV (99,7 %) con un trozo `attack`. Los 4 casos MCP que fallan son todos YAML plano (hallazgo 4).
+
+Las secciones que siguen describen los hallazgos como se encontraron. Se conservan como registro.
+
+---
+
 Pasamos todos los datos por el troceo real del guardián con `data/check_chunks.py`. Con solo JSON y texto, en 522 de 527 casos MCP (99,1 %) algún trozo queda como `attack` según `label()`. Al agregar salidas en **YAML con el formato de AgentDojo** (hallazgo 4) bajó a 509 de 527 (96,6 %): en YAML, el 88 % frente al 99 % en JSON. Los casos que fallan **no son errores de los datos**: muestran cuatro formas en que una inyección queda sin ningún trozo `attack`. Cuando eso pasa, el guardián no tiene qué aprender en el entrenamiento ni qué retirar en producción.
 
 Repaso de lo que importa aquí:

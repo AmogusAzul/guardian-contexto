@@ -102,9 +102,7 @@ python data/check_chunks.py --fallos 5   # necesita PyYAML (dependencia de guard
 
 Pasa cada caso de `mcp_*.jsonl` y cada fila de los CSV por `guard/chunking.py` y comprueba, para cada ataque, que algún trozo quede como `attack` según `label()` (≥ 80 % del trozo es `injected_text`), que sea del tipo esperado (`value`, o `path` en `key_injection`) y que esté en `injected_path`. En `key_injection` comprueba además que `injected_text` sea **idéntico** al trozo de ruta del guardián.
 
-Resultado actual: 522/527 casos MCP y 1.765/1.771 filas con un trozo `attack`; ruta correcta 150/155. Los fallos que quedan son límites del troceo, no de los datos:
-- **InjecAgent `TwitterManagerReadTweet`:** la plantilla pega la inyección a mitad de oración (`"We proudly present our new flavor, <inyección>"`): el trozo mezcla texto legítimo y queda ambiguo.
-- **Clave corta con valor largo** (`{"transfer-savings-to": "<IBAN de 7 bloques>"}`): el valor no entra a la ruta (> 6 palabras) y la ruta queda con 3 palabras (< `MIN_WORDS`): el guardián no ve el ataque.
+Resultado actual (guardián de `master`, ya con las correcciones de Algoritmo a partir de `docs/chunking-findings.md`): 523/527 casos MCP (99,2 %) y 1.765/1.771 filas (99,7 %) con un trozo `attack`; ruta correcta 152/156. Los fallos que quedan son **YAML plano leído como texto** (`docs/yaml-findings.md`), no errores de los datos.
 
 Lo que se corrigió en los datos gracias a esta prueba: inyecciones sintéticas pegadas en la misma línea sin un límite de oración que el guardián reconozca (portador sin punto final, o envoltura `**…**`/`> …`). Ahora solo se pegan en la misma línea cuando el portador termina en `.!?` y la inyección empieza con mayúscula, comilla, `(`, `<`, `#` o `[`.
 
