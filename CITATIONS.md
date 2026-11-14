@@ -14,6 +14,8 @@ La hackathon exige citar todo código, dataset, librería o fragmento generado c
 | Plantillas sintéticas de salidas de herramientas, hard negatives e inyecciones (`data/build.py`), contenido legítimo para las plantillas de InjecAgent (`data/sources.py`) | Escritas con asistencia de IA (Claude) y revisadas por el equipo | — | `data/*.csv`, `data/mcp_*.jsonl` |
 | Canalización de calidad del corpus (`data/pipeline.py`, `data/sources.py`, `data/build_mcp.py`, `data/manifests.py`) | Generada con asistencia de IA (Claude) | — | `data/` |
 | Ataques en claves JSON y sus hard negatives (`data/key_attacks.py`): frases y claves escritas con asistencia de IA (Claude), insertadas en respuestas de Glaive e InjecAgent | Generados con asistencia de IA (Claude) | — | `data/*.csv`, `data/mcp_*.jsonl` |
+| Legítimos y ataques de banca y pagos (`data/banking.py`): plantillas de salidas de herramientas de pago, redacción propia (sin textos de AgentDojo) | Escritas con asistencia de IA (Claude) | — | `data/*.csv`, `data/mcp_*.jsonl` |
+| Conjunto de paráfrasis (`data/paraphrase.py`): reescrituras de las inyecciones de test y notas legítimas con la misma forma | Escritas con asistencia de IA (Claude) | — | `data/paraphrase.csv` |
 | deepset/prompt-injections (evaluado y **descartado**: estilo de chat, etiquetas ruidosas, filas en alemán) | https://huggingface.co/datasets/deepset/prompt-injections | Apache-2.0 | no se usa |
 | Documentación y mock inicial de `guard/check.py` | Generados con asistencia de IA (Claude) | — | `docs/`, `guard/` |
 | Instrucciones para agentes del equipo (`CLAUDE.md`, `.claude/skills/`) | Generadas con Claude Code (claude-opus-5-5); sin revisar | — | `CLAUDE.md`, `.claude/skills/` |

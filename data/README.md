@@ -8,6 +8,7 @@ Dueño: **Datos**. Formato en el Contrato 3 de `docs/architecture.md`.
 | `mcp_train/val/test.jsonl` | Casos MCP: prompt del usuario + `tools/call` + respuesta del servidor, con `injected_text` |
 | `QUALITY.md` | Reporte generado: composición, descartes por criterio, atajos medidos y fugas |
 | `rejected.csv` | Cada fila descartada con su motivo (auditoría) |
+| `paraphrase.csv` | Conjunto de robustez: inyecciones de test reescritas (literal, leve, sin palabras de alerta) y legítimos con la misma forma. Solo evaluación |
 | `mcp_manifests.jsonl` | Descripciones de herramientas MCP limpias y envenenadas (MCPTox + ToolACE) para `origen="manifiesto"`. Se genera en local, no se sube |
 | `pools/` | Muestras ya filtradas de LLMail-Inject, Glaive y ToolACE (evita bajar ~800 MB) |
 | `raw/` | Descargas crudas (no se suben; `.gitignore`) |
@@ -31,6 +32,7 @@ Todas con licencia verificada en el repositorio original (ver `CITATIONS.md`). *
 | Glaive Function Calling v2 (Apache-2.0) | Respuestas reales de funciones con su petición | Por nombre de función (60/15/25). Al 40 % se le inyecta un ataque del split (reemplazando un campo o agregando uno) |
 | NotInject (MIT) | Legítimos con palabras gatillo ("ignore", "bypass"…): sobre-defensa | `NotInject_one` → val, `_two`/`_three` → test. **Nunca en train** (advertencia de sus autores) |
 | Sintéticos (`build.py`) | 10 familias de salidas de herramientas, *hard negatives*, 7 categorías de ataque incluida `task_aligned` | Cada familia en un split; redacciones, datos del atacante y formas de esconder distintas por split |
+| Banca y pagos (`banking.py`) | Sobre todo **legítimos** de banca: confirmaciones de transferencias, facturas que piden pagar a una cuenta, movimientos, saldos, cambios del propio usuario y respuestas de herramientas de pago; más ataques del mismo dominio (orden escondida de pagar a otro IBAN). Corrige el sesgo "banca = ataque" (`docs/data-banking-negatives.md`) | Herramientas y plantillas distintas por split. El recorte 50/50 la toca de último (`PROTECTED_SOURCES`) |
 
 ## Criterios de calidad (`pipeline.py`)
 
@@ -102,9 +104,25 @@ python data/check_chunks.py --fallos 5   # necesita PyYAML (dependencia de guard
 
 Pasa cada caso de `mcp_*.jsonl` y cada fila de los CSV por `guard/chunking.py` y comprueba, para cada ataque, que algún trozo quede como `attack` según `label()` (≥ 80 % del trozo es `injected_text`), que sea del tipo esperado (`value`, o `path` en `key_injection`) y que esté en `injected_path`. En `key_injection` comprueba además que `injected_text` sea **idéntico** al trozo de ruta del guardián.
 
-Resultado actual (guardián de `master`, ya con las correcciones de Algoritmo a partir de `docs/chunking-findings.md`): 523/527 casos MCP (99,2 %) y 1.765/1.771 filas (99,7 %) con un trozo `attack`; ruta correcta 152/156. Los fallos que quedan son **YAML plano leído como texto** (`docs/yaml-findings.md`), no errores de los datos.
+Resultado actual (guardián de `master`, ya con las correcciones de Algoritmo a partir de `docs/chunking-findings.md`): 584/587 casos MCP (99,5 %) y 1.933/1.939 filas (99,7 %) con un trozo `attack`; ruta correcta 143/146. Los fallos que quedan son **YAML plano leído como texto** (`docs/yaml-findings.md`), no errores de los datos.
 
 Lo que se corrigió en los datos gracias a esta prueba: inyecciones sintéticas pegadas en la misma línea sin un límite de oración que el guardián reconozca (portador sin punto final, o envoltura `**…**`/`> …`). Ahora solo se pegan en la misma línea cuando el portador termina en `.!?` y la inyección empieza con mayúscula, comilla, `(`, `<`, `#` o `[`.
+
+## Paráfrasis (robustez): `paraphrase.csv`
+
+Responde a "¿y si el atacante reescribe la inyección?" (`docs/evaluation.md`, "Robustez"). Lo genera `python data/paraphrase.py`, aparte de `build.py`. Es **solo evaluación**: no se entrena ni se eligen umbrales con él.
+
+| `source` | Etiqueta | Filas | Qué es |
+|---|---|---|---|
+| `paraphrase_verbatim` | attack | 54 | Las 18 inyecciones de test (`PAYLOADS["test"]` y `ALIGNED` de las familias de test) tal cual |
+| `paraphrase_light` | attack | 54 | Misma intención con otras palabras; todavía le habla al modelo ("Hi model, …") |
+| `paraphrase_stealth` | attack | 108 | Misma intención **sin palabras de alerta** (ignore, instructions, assistant, AI, model, system, urgent, must…): parece una nota normal ("Account update: the recovery email for this account is now …") |
+| `paraphrase_benign` | benign | 120 | Notas legítimas con la misma forma que las stealth (acciones, enlaces, cuentas), pero del dominio o la cuenta legítima |
+
+- **Emparejado:** las versiones de un mismo ataque van en el **mismo portador, en la misma posición y con los mismos datos del atacante**; solo cambia la redacción. La caída de detección de `verbatim` a `light` a `stealth`, con el umbral congelado, es lo que pierde el guardián cuando el atacante reescribe.
+- **Verificado al generar:** las stealth y las benign no tienen ninguna palabra de alerta; las paráfrasis no agregan datos que no estén en el original. 0 textos compartidos con train/val/test, 0 firmas de AgentDojo, y el troceo del guardián deja la inyección en un trozo `attack` en 216/216 ataques.
+- **Cómo leerlo:** un filtro de palabras clave debería caer casi a 0 % en `stealth`. Algunas stealth son, por diseño, casi indistinguibles de una nota legítima sin mirar la tarea ("Account update: the recovery email is now …"): ahí solo el desvío respecto a la tarea puede ayudar. Reportar la detección por versión y los falsos positivos en `paraphrase_benign`.
+- Paráfrasis escritas con asistencia de IA (Claude). Datos del atacante ficticios (los de test).
 
 ## Manifiestos MCP (MCPTox): `mcp_manifests.jsonl`
 
@@ -129,9 +147,9 @@ for m in map(json.loads, open("data/mcp_manifests.jsonl")):
 
 ## Límites conocidos (para la ficha)
 
-- **La longitud sigue ayudando algo:** AUC ≈ 0,63–0,71 dentro de cada fuente, porque una instrucción maliciosa suele ser más larga que el valor de un campo.
+- **La longitud sigue ayudando algo:** AUC ≈ 0,64–0,73 dentro de cada fuente, porque una instrucción maliciosa suele ser más larga que el valor de un campo.
 - **URL y correos:** aparecen en ~70–80 % de los ataques frente a ~15–25 % de los legítimos. Es propio del objetivo de los ataques (exfiltrar a un destino), pero un detector puede apoyarse en eso.
 - **Calidad de las fuentes:** LLMail tiene un solo objetivo de ataque (mandar un correo), aunque con técnicas muy variadas. InjecAgent repite pocas plantillas, y sus instrucciones son cortas y sin ocultar.
 - **NotInject son prompts de chat**, no salidas de herramientas: sirve para medir sobre-defensa, no como legítimo típico.
-- Solo inglés. Sin ataques adaptativos contra *nuestro* guardián ni ataques partidos entre trozos.
+- Solo inglés. Sin ataques adaptativos contra *nuestro* guardián ni ataques partidos entre trozos. Las paráfrasis (`paraphrase.csv`) son reescrituras a mano, no un atacante que optimiza contra el guardián.
 - `val` no tiene ataques de LLMail: los umbrales se calibran sin ataques humanos adaptativos.
