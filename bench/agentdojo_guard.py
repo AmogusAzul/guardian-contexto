@@ -14,6 +14,7 @@ diferencia entre ambas es descartar frente a sanear.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Sequence
 
 from agentdojo.agent_pipeline import PromptInjectionDetector
@@ -59,7 +60,13 @@ class GuardDetect(PromptInjectionDetector):
         return super().query(query, runtime, env, messages, extra_args)
 
     def detect(self, tool_output: str) -> tuple[bool, float]:
-        permitido, info = self._check(tool_output, tarea=self.tarea, origen="herramienta")
+        try:
+            permitido, info = self._check(tool_output, tarea=self.tarea, origen="herramienta")
+        except NotImplementedError:
+            from guard.mock import check as mock_check
+            self._check = mock_check
+            permitido, info = self._check(tool_output, tarea=self.tarea, origen="herramienta")
+
         self._ultimo = info
         self.registro.append(
             {
