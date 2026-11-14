@@ -1,0 +1,105 @@
+{
+  "dataset": "data\\test.csv",
+  "modelo": "protectai/deberta-v3-base-prompt-injection-v2",
+  "device": "cpu",
+  "total_muestras": 1562,
+  "total_ataques": 781,
+  "total_benignos": 781,
+  "deberta": {
+    "tasa_deteccion_recall_pct": 51.6,
+    "tasa_falsos_positivos_fpr_pct": 21.9,
+    "tpr_ic95": [
+      0.481,
+      0.5509
+    ],
+    "fpr_ic95": [
+      0.1914,
+      0.2493
+    ],
+    "tp": 403,
+    "fp": 171,
+    "tn": 610,
+    "fn": 378,
+    "latencia_mediana_ms": 170.983,
+    "latencia_p95_ms": 383.822
+  },
+  "desglose_categoria": {
+    "role_hijack": {
+      "total": 40,
+      "tp": 40,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0
+    },
+    "tool_output": {
+      "total": 399,
+      "tp": 0,
+      "fp": 44,
+      "tn": 355,
+      "fn": 0
+    },
+    "human_adaptive": {
+      "total": 421,
+      "tp": 135,
+      "fp": 0,
+      "tn": 0,
+      "fn": 286
+    },
+    "hard_negative": {
+      "total": 382,
+      "tp": 0,
+      "fp": 127,
+      "tn": 255,
+      "fn": 0
+    },
+    "task_redirect": {
+      "total": 34,
+      "tp": 31,
+      "fp": 0,
+      "tn": 0,
+      "fn": 3
+    },
+    "task_aligned": {
+      "total": 38,
+      "tp": 26,
+      "fp": 0,
+      "tn": 0,
+      "fn": 12
+    },
+    "tool_misuse": {
+      "total": 65,
+      "tp": 28,
+      "fp": 0,
+      "tn": 0,
+      "fn": 37
+    },
+    "exfiltration": {
+      "total": 80,
+      "tp": 52,
+      "fp": 0,
+      "tn": 0,
+      "fn": 28
+    },
+    "fake_authority": {
+      "total": 36,
+      "tp": 27,
+      "fp": 0,
+      "tn": 0,
+      "fn": 9
+    },
+    "key_injection": {
+      "total": 30,
+      "tp": 27,
+      "fp": 0,
+      "tn": 0,
+      "fn": 3
+    },
+    "instruction_override": {
+      "total": 37,
+      "tp": 37,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0
+    }
+  }
+}

@@ -182,6 +182,122 @@ def evaluar_csv(csv_path: str | Path, output_json: str | Path | None = None) -> 
     return resultado
 
 
+def evaluar_deberta_csv(csv_path: str | Path, output_json: str | Path | None = None) -> dict:
+    """Evalúa el baseline DeBERTa (protectai/deberta-v3-base-prompt-injection-v2) sobre el CSV."""
+    import torch
+    from transformers import pipeline
+
+    csv_file = Path(csv_path)
+    if not csv_file.exists():
+        raise FileNotFoundError(f"No se encontró el archivo de datos: {csv_file}")
+
+    filas = []
+    with open(csv_file, mode="r", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            filas.append(row)
+
+    if not filas:
+        raise ValueError(f"El archivo {csv_file} está vacío.")
+
+    model_name = "protectai/deberta-v3-base-prompt-injection-v2"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Cargando DeBERTa ({model_name}) en {device}...", flush=True)
+    pipe = pipeline("text-classification", model=model_name, device=device, truncation=True, max_length=512)
+    pipe("Hello world")
+
+    d_tp, d_fp, d_tn, d_fn = 0, 0, 0, 0
+    d_latencias = []
+    por_categoria: dict[str, dict] = {}
+    safe_label = "SAFE"
+    threshold = 0.5
+
+    total = len(filas)
+    for idx, row in enumerate(filas, 1):
+        texto = row["text"]
+        lbl = row["label"].strip().lower()
+        cat = row.get("category", "general")
+        es_ataque = (lbl == "attack")
+
+        if cat not in por_categoria:
+            por_categoria[cat] = {"total": 0, "tp": 0, "fp": 0, "tn": 0, "fn": 0}
+        por_categoria[cat]["total"] += 1
+
+        t0 = time.perf_counter()
+        res = pipe(texto)[0]
+        lat = (time.perf_counter() - t0) * 1000
+        d_latencias.append(lat)
+
+        safety_score = res["score"] if res["label"] == safe_label else 1.0 - res["score"]
+        detectado = safety_score < threshold
+
+        if es_ataque:
+            if detectado:
+                d_tp += 1
+                por_categoria[cat]["tp"] += 1
+            else:
+                d_fn += 1
+                por_categoria[cat]["fn"] += 1
+        else:
+            if detectado:
+                d_fp += 1
+                por_categoria[cat]["fp"] += 1
+            else:
+                d_tn += 1
+                por_categoria[cat]["tn"] += 1
+
+        if idx % 200 == 0 or idx == total:
+            print(f"  Progreso DeBERTa: {idx}/{total} muestras procesadas...", flush=True)
+
+    total_ataques = d_tp + d_fn
+    total_benignos = d_fp + d_tn
+    tasa_det = (d_tp / total_ataques * 100) if total_ataques > 0 else 0.0
+    tasa_fp = (d_fp / total_benignos * 100) if total_benignos > 0 else 0.0
+    lat_mediana = statistics.median(d_latencias) if d_latencias else 0.0
+    lat_p95 = statistics.quantiles(d_latencias, n=20)[18] if len(d_latencias) >= 20 else lat_mediana
+
+    resultado = {
+        "dataset": str(csv_file),
+        "modelo": model_name,
+        "device": str(device),
+        "total_muestras": total,
+        "total_ataques": total_ataques,
+        "total_benignos": total_benignos,
+        "deberta": {
+            "tasa_deteccion_recall_pct": round(tasa_det, 2),
+            "tasa_falsos_positivos_fpr_pct": round(tasa_fp, 2),
+            "tpr_ic95": wilson(d_tp, total_ataques),
+            "fpr_ic95": wilson(d_fp, total_benignos),
+            "tp": d_tp,
+            "fp": d_fp,
+            "tn": d_tn,
+            "fn": d_fn,
+            "latencia_mediana_ms": round(lat_mediana, 3),
+            "latencia_p95_ms": round(lat_p95, 3),
+        },
+        "desglose_categoria": por_categoria,
+    }
+
+    print("\n" + "=" * 65)
+    print(" EVALUACIÓN DE BASELINE DEBERTA EN CSV")
+    print("=" * 65)
+    print(f"Dataset: {csv_file} (N = {total} | Ataques: {total_ataques} | Benignos: {total_benignos})")
+    print("-" * 65)
+    print(f"Detección (Recall / TPR) : {tasa_det:>6.2f} % ({d_tp}/{total_ataques})")
+    print(f"Falsos Positivos (FPR)   : {tasa_fp:>6.2f} % ({d_fp}/{total_benignos})")
+    print(f"Latencia Mediana ({device})  : {lat_mediana:>6.2f} ms")
+    print(f"Latencia p95 ({device})      : {lat_p95:>6.2f} ms")
+    print("=" * 65)
+
+    if output_json:
+        out_p = Path(output_json)
+        out_p.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_p, "w", encoding="utf-8") as f:
+            json.dump(resultado, f, indent=2, ensure_ascii=False)
+        print(f"Resultados guardados en: {out_p}")
+
+    return resultado
+
+
 def evaluar_mcp_jsonl(jsonl_path: str | Path, output_json: str | Path | None = None) -> dict:
     jsonl_file = Path(jsonl_path)
     if not jsonl_file.exists():
@@ -499,11 +615,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluar detector de inyecciones en CSV o JSONL local")
     parser.add_argument("--csv", default=None, help="Ruta al CSV con columnas text,label,category,source")
     parser.add_argument("--mcp", default=None, help="Ruta al JSONL de MCP (data/mcp_test.jsonl)")
+    parser.add_argument("--deberta", action="store_true", help="Evaluar también el baseline DeBERTa sobre el CSV")
     parser.add_argument("--out", default=None, help="Ruta del JSON para guardar resultados")
     args = parser.parse_args()
 
     if args.mcp:
         evaluar_mcp_jsonl(args.mcp, args.out)
+    elif args.deberta:
+        csv_to_use = args.csv or ("data/test.csv" if Path("data/test.csv").exists() else "data/val.csv")
+        evaluar_deberta_csv(csv_to_use, args.out)
     else:
         csv_to_use = args.csv or ("data/test.csv" if Path("data/test.csv").exists() else "data/val.csv")
         evaluar_csv(csv_to_use, args.out)
