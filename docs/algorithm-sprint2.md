@@ -67,8 +67,20 @@ Trozos que le hablan al modelo (“Assistant:”, “AI, please…”, “Before
 - **Inyecciones en tema:** en InjecAgent el AUC del desvío es 0,41 y el de la llamada 0,38 (al revés). Falta un dataset de validación con inyecciones escritas para la herramienta (como AgentDojo) para saber cuánto vale el desvío ahí; si resulta dañino, entrenar la logística con esas filas le baja el peso.
 - **Frases legítimas que suenan a orden** (“The agent must call the customer back…”) y rutas con “reset password url” son lo que sigue tocando: *hard negatives* para Datos.
 
-## 9. Pendiente para cerrar la versión 1
+## 9. Versión 2: qué se hizo y qué queda
 
-- **Estrategia de clasificación:** la versión 1 decide solo con el ataque y no calcula el desvío. En la versión 2 se decide si entra el desvío (regla o logística) con la comparación a la misma tasa de legítimas tocadas (rama `algo-polish`).
-- **Datos nuevos de `branch-data`:** descripciones de herramientas en los casos MCP, texto inyectado marcado en los CSV y el corpus en YAML. Al entrar, reentrenar; la referencia “llamada” del desvío debe usar los mismos campos al calibrar y en ejecución.
-- **`origen="manifiesto"`:** hoy se trata como una salida de herramienta. Falta su referencia de desvío (el nombre de la herramienta y sus parámetros).
+Hecho: la logística decide (algorithm.md, paso 5), con copias sin llamada y sin pedido, y la llamada con la descripción de la herramienta. Probado con los datos de `branch-data` y sin ganancia (lectura 1, `mcp_val`, 10 particiones; la versión 2 da 84 % / 3 %):
+
+- **`train.csv` en la referencia** (dirección y tablas, con `injected_text`): logística 80 % / 4 %, solo ataque 37 %. Los trozos legítimos de validación más altos suben más que los ataques. Solo las filas de claves: igual (84 % / 4 %).
+- **Puntajes fuera de la muestra en train** (referencia por pliegues) para ajustar la logística con train y validación: 45–60 %. Las fuentes de train piden otros pesos (en LLMail el pedido va al revés).
+- **Dirección propia para las rutas:** 81 % / 4 %. **Palabras de la clave más larga y profundidad** como rasgos: igual.
+- **`bge-small-en-v1.5`:** 85 % / 4 %, más lento.
+- **Copias sin pedido y sin llamada a la vez:** `val.csv` (sin contexto) 84 % intactas frente a 80 %, pero la lectura 1 baja a 83 % / 4 %. No entró.
+
+Queda:
+
+- **Reentrenar con los legítimos de banca y las paráfrasis** de Datos (en `master` después del congelamiento) y repetir la corrida offline de AgentDojo.
+- **El adaptador de AgentDojo no pasa `herramienta`**: pasarla (nombre, descripción y argumentos de la última llamada) es lo que mide validación.
+- **Sin pedido ni llamada** (texto suelto) la versión 2 toca más legítimas (`notinject`). Filas sin contexto en validación.
+- **Saneado incompleto:** en AgentDojo muchas veces se retira una sola oración de la carga y la orden queda. Retirar también las oraciones vecinas del mismo bloque con ataque alto.
+- **`origen="manifiesto"`:** se trata como una salida de herramienta, sin pedido.
