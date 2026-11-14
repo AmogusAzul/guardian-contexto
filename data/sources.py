@@ -112,8 +112,9 @@ def llmail_attacks(evil_emails: dict[str, list[str]]) -> list[dict]:
         for line in open(build_llmail_pool(phase), encoding="utf-8"):
             t = json.loads(line)["text"]
             t = LLMAIL_DEST.sub(lambda _: rng.choice(evil_emails[split]), t)
+            # El correo entero lo escribió el atacante: el fragmento malicioso es todo el texto.
             rows.append(dict(text=t, label="attack", category="human_adaptive",
-                             source=f"llmail_phase{phase}", split=split))
+                             source=f"llmail_phase{phase}", split=split, injected_text=t))
     return rows
 
 
@@ -303,13 +304,18 @@ def injecagent(evil_emails: dict[str, list[str]]) -> list[dict]:
         att_split[a["Attacker Instruction"]] = "train" if b < 5 else ("val" if b < 7 else "test")
     tool_split = {t: s for s, ts in INJECAGENT_TOOL_SPLIT.items() for t in ts}
 
+    # Descripción de cada herramienta (ToolCall.description en el contrato de check()): el resumen
+    # de tools.json; la herramienta "AmazonGetProductDetails" = toolkit "Amazon" + tool "GetProductDetails".
+    toolkits = json.load(open(_download(INJECAGENT + "tools.json", RAW / "injecagent_tools.json"), encoding="utf-8"))
+    descriptions = {tk["toolkit"] + t["name"]: t.get("summary", "").strip() for tk in toolkits for t in tk["tools"]}
+
     rows = []
     rng = random.Random(11)
     for u in users:
         split = tool_split[u["User Tool"]]
         tpl = u["Tool Response Template"]
         base = dict(source="injecagent", split=split, prompt=u["User Instruction"], tool=u["User Tool"],
-                    args=u["Tool Parameters"])
+                    args=u["Tool Parameters"], tool_description=descriptions.get(u["User Tool"], ""))
         for i, filler in enumerate(INJECAGENT_BENIGN[u["User Tool"]]):
             cat = "hard_negative" if i == len(INJECAGENT_BENIGN[u["User Tool"]]) - 1 else "tool_output"
             text, _ = fill_injecagent_template(tpl, filler)
@@ -338,6 +344,44 @@ _GLAIVE_TURN = re.compile(
     r"FUNCTION RESPONSE: (?P<resp>.*?)\s*ASSISTANT:", re.DOTALL)
 
 
+def _glaive_functions(system: str) -> dict[str, str]:
+    """Definiciones de funciones del prompt de sistema de Glaive -> {nombre: descripción}."""
+    out, dec, i = {}, json.JSONDecoder(), system.find("{")
+    while i != -1:
+        try:
+            obj, end = dec.raw_decode(system, i)
+        except ValueError:
+            i = system.find("{", i + 1)
+            continue
+        if isinstance(obj, dict) and obj.get("name"):
+            out[obj["name"]] = (obj.get("description") or "").strip()
+        i = system.find("{", end)
+    return out
+
+
+def _enrich_glaive_pool(pool: Path) -> None:
+    """Agrega `description` a una muestra creada antes de que existiera el campo: la descripción
+    más frecuente de cada función en el archivo crudo (no cambia qué respuestas están en la muestra)."""
+    items = [json.loads(l) for l in open(pool, encoding="utf-8")]
+    if all("description" in x for x in items):
+        return
+    raw = RAW / "glaive_v2.json"
+    if not raw.exists():
+        return  # sin el crudo no se puede; las descripciones quedan vacías
+    need = {x["tool"] for x in items}
+    seen: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    for it in json.load(open(raw, encoding="utf-8")):
+        if not any(f'"{t}"' in it.get("system", "") for t in need):
+            continue
+        for name, desc in _glaive_functions(it.get("system", "")).items():
+            if name in need and desc:
+                seen[name][desc] += 1
+    with open(pool, "w", encoding="utf-8", newline="\n") as f:
+        for x in items:
+            x["description"] = seen[x["tool"]].most_common(1)[0][0] if seen[x["tool"]] else ""
+            f.write(json.dumps(x, ensure_ascii=False) + "\n")
+
+
 def build_glaive_pool(n: int = 1500, per_tool: int = 4, min_chars: int = 60) -> Path:
     """Muestra diversa de respuestas: como mucho `per_tool` por función (hay miles de llamadas a
     las mismas 20 funciones) y de al menos `min_chars` (fuera las triviales tipo {"result": 42})."""
@@ -358,7 +402,8 @@ def build_glaive_pool(n: int = 1500, per_tool: int = 4, min_chars: int = 60) -> 
             seen.add(resp)
             per[name.group(1)] += 1
             items.append(dict(prompt=m.group("prompt").strip(), tool=name.group(1),
-                              args=args.group(1) if args else "{}", text=resp))
+                              args=args.group(1) if args else "{}", text=resp,
+                              description=_glaive_functions(it.get("system", "")).get(name.group(1), "")))
         if len(items) >= n:
             break
     del convs
@@ -383,12 +428,14 @@ def glaive(make_attack) -> list[dict]:
     tenga ambas etiquetas y la estructura JSON no delate nada."""
     rows = []
     rng = random.Random(5)
-    for line in open(build_glaive_pool(), encoding="utf-8"):
+    pool = build_glaive_pool()
+    _enrich_glaive_pool(pool)
+    for line in open(pool, encoding="utf-8"):
         x = json.loads(line)
         b = stable_bucket(x["tool"], 20)
         split = "train" if b < 12 else ("val" if b < 15 else "test")
         base = dict(source="glaive_function_responses", split=split, prompt=user_messages(x["prompt"]),
-                    tool=x["tool"], args=x["args"])
+                    tool=x["tool"], args=x["args"], tool_description=x.get("description", ""))
         if rng.random() < 0.4:
             text, category, injected = make_attack(x["text"], split, rng)
             rows.append(dict(base, text=text, label="attack", category=category, injected_text=injected))

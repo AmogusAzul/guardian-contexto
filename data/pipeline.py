@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import json
 import random
 import re
 import statistics
@@ -89,6 +90,14 @@ def _latin_ratio(text: str) -> float:
     return sum("LATIN" in unicodedata.name(c, "") for c in letters) / len(letters)
 
 
+def span_found(row: dict) -> bool:
+    """¿El fragmento malicioso (`injected_text`) aparece en `text`? Tal cual, o escapado como
+    cadena JSON cuando va dentro de un campo (InjecAgent, Glaive, api_json). Los ataques en
+    claves (`key_injection`) se excluyen: su `injected_text` es la ruta en palabras (path_words)."""
+    inj, t = row.get("injected_text") or "", row["text"]
+    return bool(inj) and (inj in t or json.dumps(inj, ensure_ascii=False)[1:-1] in t)
+
+
 def quality_issues(row: dict) -> list[str]:
     t = row["text"]
     issues = []
@@ -107,6 +116,8 @@ def quality_issues(row: dict) -> list[str]:
         issues.append("agentdojo_leak")
     if row["label"] == "benign" and EXPLICIT_INJECTION.search(t):
         issues.append("benign_with_injection_pattern")
+    if row["label"] == "attack" and row.get("category") != "key_injection" and not span_found(row):
+        issues.append("injected_text_not_found")
     if row["label"] not in ("attack", "benign") or not re.fullmatch(r"[a-z0-9]+(_[a-z0-9]+)*", row["category"]):
         issues.append("bad_label_or_category")
     return issues
@@ -370,6 +381,8 @@ def main() -> None:
     clean = []
     for r in rows:
         r = dict(r, text=normalize(r["text"]))
+        if r.get("injected_text"):
+            r["injected_text"] = normalize(r["injected_text"])
         issues = quality_issues(r)
         if issues:
             rejected.append(dict(r, reason="+".join(issues)))
@@ -392,9 +405,11 @@ def main() -> None:
         part = [r for r in final if r["split"] == s]
         rng.shuffle(part)
         with open(DATA / f"{s}.csv", "w", encoding="utf-8", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=["text", "label", "category", "source"], extrasaction="ignore")
+            w = csv.DictWriter(f, fieldnames=["text", "label", "category", "source", "injected_text"],
+                               extrasaction="ignore")
             w.writeheader()
-            w.writerows(part)
+            # injected_text: el fragmento malicioso dentro de `text` (vacío en los legítimos).
+            w.writerows({**r, "injected_text": r.get("injected_text") or ""} for r in part)
     with open(DATA / "rejected.csv", "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["reason", "split", "source", "label", "category", "text"], extrasaction="ignore")
         w.writeheader()

@@ -590,13 +590,13 @@ def gen_synthetic(rng: random.Random, reps: int, composed: int, attacks_per_fami
         for i in range(attacks_per_family):
             cat = ATTACK_CATEGORIES[i % len(ATTACK_CATEGORIES)]
             slots = _Azar(rng, split)
-            _, wrapped = make_payload(fam, cat, rng, slots)
+            raw, wrapped = make_payload(fam, cat, rng, slots)
             if rng.random() < 0.2:  # la inyección sola (en api_json, como único campo de un JSON)
                 text = json.dumps({rng.choice(JSON_KEYS[split]): wrapped}, ensure_ascii=False) if fam == "api_json" else wrapped
             else:
                 texts, _ = carriers(fam, rng.randint(1, 2), rng, slots)
                 text = join_items(fam, inject(fam, texts, wrapped, rng))
-            rows.append(row(text, "attack", cat))
+            rows.append(dict(row(text, "attack", cat), injected_text=raw))
     return rows
 
 

@@ -197,6 +197,7 @@ def generate(carrier_rows: list[dict], per_split: int = 30, seed: int = 21) -> l
         for i, (r, obj) in enumerate(pool[: 2 * per_split]):
             obj = json.loads(json.dumps(obj))  # copia
             base = dict(source="synthetic_key_injection", split=split, prompt=r.get("prompt"),
+                        tool_description=r.get("tool_description", ""),
                         tool=r.get("tool"), args=r.get("args"), carrier_source=r["source"])
             if i % 2 == 0:
                 injected, path, form = _attack(obj, split, rng)

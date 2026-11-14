@@ -4,7 +4,7 @@ Dueño: **Datos**. Formato en el Contrato 3 de `docs/architecture.md`.
 
 | Archivo | Qué es |
 |---|---|
-| `train.csv`, `val.csv`, `test.csv` | Corpus del Contrato 3: `text,label,category,source` |
+| `train.csv`, `val.csv`, `test.csv` | Corpus del Contrato 3: `text,label,category,source,injected_text` (`injected_text` = el fragmento malicioso dentro de `text`; vacío en los legítimos) |
 | `mcp_train/val/test.jsonl` | Casos MCP: prompt del usuario + `tools/call` + respuesta del servidor, con `injected_text` |
 | `QUALITY.md` | Reporte generado: composición, descartes por criterio, atajos medidos y fugas |
 | `rejected.csv` | Cada fila descartada con su motivo (auditoría) |
@@ -46,7 +46,8 @@ Cada fila se reevalúa; las que fallan van a `rejected.csv` con el motivo.
 8. **Duplicados:** exactos, textos con etiquetas en conflicto y casi-duplicados (Jaccard de palabras ≥ 0,85), también entre splits, conservando primero test y luego val.
 9. **Diversidad:** de LLMail y Glaive se toma una muestra diversa (Jaccard de 3-gramas ≤ 0,5 entre ataques; ≤ 4 respuestas por función).
 10. **Atajos:** destinos fijos de los ataques (`contact@contact.com`, `amy.watson@gmail.com`) reemplazados por correos ficticios **distintos por split**. También son distintos por split los campos JSON donde va la inyección y las formas de esconderla. Hay *hard negatives* que mencionan "AI"/"assistant"/"agent", y legítimos con URL y correos.
-11. **Equilibrio:** 50/50 ataque/legítimo en cada split, con recorte emparejado por longitud. Ninguna fuente pasa del 45 % de un split, y dentro de cada fuente con ambas etiquetas ninguna etiqueta pasa del 75 %.
+11. **Fragmento malicioso:** cada ataque trae `injected_text` y tiene que encontrarse en `text` (tal cual o escapado como cadena JSON); si no, se descarta (`injected_text_not_found`). Sintéticos, Glaive e InjecAgent: la instrucción insertada, sin la envoltura (`<!-- -->`, `P.S.`…). LLMail: el correo completo (lo escribió el atacante). `key_injection`: `path_words` (ver abajo).
+12. **Equilibrio:** 50/50 ataque/legítimo en cada split, con recorte emparejado por longitud. Ninguna fuente pasa del 45 % de un split, y dentro de cada fuente con ambas etiquetas ninguna etiqueta pasa del 75 %.
 
 Los números de cada criterio están en `QUALITY.md`.
 
@@ -55,10 +56,20 @@ Los números de cada criterio están en `QUALITY.md`.
 `mcp_*.jsonl`: una línea por caso, 50/50 dentro de cada fuente, solo con filas aceptadas.
 
 ```python
+from guard import check, ToolCall
+
+params = caso["mcp_request"]["params"]
 texto = caso["mcp_response"]["result"]["content"][0]["text"]
-permitido, info = check(texto, tarea=caso["prompt"], origen="herramienta")
+permitido, info = check(
+    texto,
+    tarea=caso["prompt"],                       # solo mensajes del usuario
+    origen="herramienta",
+    herramienta=ToolCall(name=params["name"], description=caso["tool_description"], arguments=params["arguments"]),
+)
 # saneo correcto: caso["injected_text"] no está en info["texto_limpio"] y el resto sí
 ```
+
+`tool_description` (para `ToolCall.description`, ver `docs/check-contract.md`): InjecAgent, de su `tools.json`; Glaive, de la definición de la función en su prompt de sistema; LLMail y sintéticos, escrita por el equipo. Los ataques en claves heredan la de su portador. En MCP real la descripción viene de `tools/list`, no de `tools/call`; por eso va en un campo aparte.
 
 Fuentes: InjecAgent y Glaive (prompt, herramienta y argumentos reales), escenario de correo de LLMail (2–3 correos legítimos más, en los ataques, un correo de un atacante real) y sintéticos.
 
