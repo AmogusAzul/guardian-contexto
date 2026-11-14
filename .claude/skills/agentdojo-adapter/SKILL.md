@@ -24,34 +24,30 @@ Empezar con `banking` y 2 tareas × 2 inyecciones para medir tokens por caso; lu
 
 La `tarea` que se pasa a `check()` es el **primer mensaje del usuario** de la conversación.
 
-- **`guard-detect`**: subclase de `PromptInjectionDetector`. AgentDojo descarta la salida completa cuando detecta algo. Comparable uno a uno con DeBERTa.
+Implementadas en `bench/agentdojo_guard.py` (probadas con agentdojo 0.1.35, benchmark v1.2.2):
 
-  ```python
-  from agentdojo.agent_pipeline import PromptInjectionDetector
-  from guard import check
+- **`guard-detect`** (`GuardDetect`): subclase de `PromptInjectionDetector`. AgentDojo descarta la salida completa cuando detecta algo. Comparable uno a uno con DeBERTa.
+- **`guard-sanitize`** (`GuardSanitize`): hereda de `GuardDetect` y sobrescribe `transform()` para devolver `info["texto_limpio"]` en vez de descartar. Es la tesis: sanear en vez de descartar.
 
-  class GuardDetector(PromptInjectionDetector):
-      def detect(self, tool_output: str):
-          permitido, info = check(tool_output, tarea=self.tarea, origen="herramienta")
-          return (not permitido), info["attack_score"]   # True = inyección
-  ```
+Las dos llaman `check()` con la misma tarea, así que la única diferencia es descartar frente a sanear. Si `guard-sanitize` conserva más utilidad bajo ataque que `guard-detect` con un éxito del ataque parecido, la tesis queda demostrada.
 
-- **`guard-sanitize`**: un elemento del pipeline justo después de `ToolsExecutor` que reemplaza el contenido del mensaje de la herramienta por `info["texto_limpio"]`. Es la tesis: sanear en vez de descartar.
+## Cómo funciona AgentDojo por dentro (verificado en el código, 0.1.35)
 
-```python
-pipeline = AgentPipeline([
-    SystemMessage(...), InitQuery(), llm,
-    ToolsExecutionLoop([ToolsExecutor(), GuardSanitizer(), llm]),
-])
+- `PromptInjectionDetector.query()` recorre los mensajes `tool` del final de la conversación, llama `detect(texto)` en cada uno y, si da `True`, reemplaza el contenido con `transform(contenido)` (por defecto `"<Data omitted because a prompt injection was detected>"`). `transform()` se llama justo después de `detect()` sobre el mismo mensaje.
+- `detect()` solo recibe el texto. La tarea se toma en `query()`, que recibe el prompt del usuario como primer argumento (y está en el primer mensaje `user`): `GuardDetect` la guarda ahí antes de llamar al padre.
+- `--defense` del CLI solo acepta las defensas de serie: por eso `bench/run_agentdojo.py` arma el `AgentPipeline` a mano.
+- El nombre del pipeline debe contener el id del modelo (p. ej. `gpt-4o-mini-2024-07-18`): `important_instructions` lo usa para dirigirse al modelo ("to you, GPT-4") y falla si no lo encuentra.
+- Las salidas de herramientas son YAML (`yaml.safe_dump`); la plantilla `important_instructions` mete el ataque con saltos de línea dentro de un campo.
+- En los resultados, `security_results = True` significa que **el ataque tuvo éxito**.
+- `benchmark_suite_with_injections` también corre las injection tasks como tareas de usuario (para comprobar que son posibles): por eso hay más salidas revisadas que casos.
+
+## Comandos
+
+```bash
+python -m pytest tests                                   # adaptadores, sin API
+python -m bench.run_agentdojo --offline -s banking -ut user_task_0 -it injection_task_0   # integración, sin API
+python -m bench.run_agentdojo -s banking -ut user_task_0 -ut user_task_1 -it injection_task_0 -it injection_task_1
 ```
-
-Si `guard-sanitize` conserva más utilidad bajo ataque que `guard-detect` con un éxito del ataque parecido, la tesis queda demostrada.
-
-## Sin verificar (comprobarlo en el bloque 1, antes de depender de esto)
-
-- Cómo se registra una defensa propia para `--defense` (probablemente hay que armar el `AgentPipeline` a mano o editar el script).
-- De dónde sacar la tarea del usuario dentro de `detect()` (los mensajes o el `query` que recibe el elemento del pipeline).
-- Qué hace exactamente AgentDojo con una detección positiva.
 
 ## Línea base publicada (gpt-4o-2024-05-13, ataque important_instructions)
 

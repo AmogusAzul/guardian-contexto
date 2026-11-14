@@ -1,5 +1,7 @@
 # El algoritmo
 
+**Estado: versión 1 terminada** (decide solo con el ataque; el desvío queda para la versión 2). Falta reentrenar con los datos de banca pedidos a Datos ([data-banking-negatives.md](data-banking-negatives.md)) y congelar antes de las pruebas ([run-numbers.md](run-numbers.md)).
+
 Dueño: **Algoritmo**. Código en `guard/`, un módulo por paso. Contrato en [architecture.md](architecture.md#contrato-1-check). Ajustes para después: [algorithm-sprint2.md](algorithm-sprint2.md).
 
 ```
@@ -24,7 +26,7 @@ Las salidas MCP y de AgentDojo son estructuras (JSON o YAML), no prosa. Se revis
 |---|---|---|
 | `json` | `json.loads` | Glaive |
 | `python` | `ast.literal_eval` (seguro: solo literales) | InjecAgent usa `{'a': 'b'}` |
-| `yaml` | `yaml.safe_load` con tres condiciones: **alguna línea con sangría o que empieza con `- `**; **sin claves repetidas** (PyYAML las pisa en silencio); y al menos la mitad de las claves **con forma de campo** (sin espacios). Una sola clave arriba (`emails:`) o una lista de un elemento valen | AgentDojo devuelve `yaml.safe_dump`. Las condiciones dejan como `text` a la prosa que también parsea como YAML: un chat `Nombre: mensaje` (claves repetidas: se perderían líneas, y con ellas un ataque) o un título seguido de viñetas |
+| `yaml` | `yaml.safe_load` si el texto tiene forma de YAML: **alguna línea con sangría o que empieza con `- `**; o **plano**, 2 o más líneas y todas `clave: valor` con la clave sin espacios (`message: …` / `status: success`); o una sola línea `clave: 'valor entre comillas'`. Además: **sin claves repetidas** (PyYAML las pisa en silencio) y al menos la mitad de las claves **de arriba** con forma de campo (sin espacios; más adentro valen claves como `1:00 PM`). Una sola clave arriba (`emails:`) o una lista de un elemento valen. Los textos largos que `safe_dump` parte en varias líneas y los escapes (`Bogot\xE1`) los resuelve el propio parser | AgentDojo devuelve `yaml.safe_dump`. En el corpus de Datos con ese formato ([yaml-findings.md](yaml-findings.md)): 613 de 620 salidas se reconocen como YAML (antes 502) y todos los ataques en claves tienen su trozo `path`. Siguen como `text` el YAML de una sola línea sin comillas (`data: …`, no se distingue de `Note: …`) y la prosa que también parsea como YAML: un chat `Nombre: mensaje` con nombres repetidos o con espacios, un título seguido de viñetas. Se leen como YAML eventos de calendario `Event: …` / `Date: …`, sin perder nada |
 | `loose` | empieza con `{` o `[` pero no parsea: cortar en `'clave':` / `"clave":`, quitar comillas y llaves de cada valor, guardar sus posiciones | 45 casos: **la inyección rompió las comillas** del JSON |
 | `text` | todo lo demás | correos, chats, documentos |
 
@@ -152,9 +154,22 @@ retirar si  attack ≥ τ_alto
 - Entre ventanas que se solapan, gana la más corta: una oración maliciosa no arrastra a sus vecinas legítimas.
 - **Umbrales por salida, no por trozo.** Una salida es un falso positivo si se le retira **cualquier** trozo. Con 1 % de falsos positivos por trozo, una salida de 45 trozos pierde algo el 36 % de las veces (1 − 0,99⁴⁵). Los tres umbrales se eligen juntos en validación con una búsqueda en rejilla: la combinación que más salidas atacadas atrapa (con un trozo de ataque retirado) con a lo más 5 % de salidas legítimas tocadas. Los candidatos salen de los datos: para `τ_alto`, percentiles altos del máximo de ataque de cada salida legítima; para `τ_bajo`, percentiles del ataque de los trozos legítimos.
 
+**Cuatro formas de decidir, comparadas en validación** (`guard.train`; se ajustan en una mitad y se miden en la otra, promedio de las dos):
+
+| Método | Qué decide | Atrapadas | Legítimas tocadas |
+|---|---|---|---|
+| Solo ataque | `attack ≥ τ_alto` | 72 % | 5 % |
+| Regla, tabla final del desvío de train | la regla de arriba | 79 % | 8 % |
+| Regla, tabla final del desvío de validación | la regla de arriba | 78 % | 10 % |
+| Logística (`stack.py`) | una regresión logística sobre los percentiles (ataque, pedido, llamada, vecinos) y la clase del trozo, con un solo umbral | 84 % | 7 % |
+
+Se elige el que mejor separa y se reajusta con toda la validación; el método y sus umbrales quedan en el archivo de referencia (`method`). **Versión 1: solo ataque** (`τ_alto = 0,9936`): es el único que se mantiene en 5 % de legítimas tocadas en la otra mitad. **En la versión 1 el desvío no se usa:** `check()` no lo calcula (`drift_score` es `None`) y la regla queda en `attack ≥ τ_alto`. Las otras formas atrapan más pero se pasan del 5 % al cambiar de mitad; la estrategia de clasificación se revisa en la versión 2 ([algorithm-sprint2.md](algorithm-sprint2.md)). `drift.py`, `stack.py` y la comparación de `guard.train` se quedan para eso.
+
+`check()` de punta a punta en `data/mcp_val.jsonl` con esa versión: 93 de 111 inyecciones retiradas, 5 de 111 salidas legítimas tocadas, latencia mediana 97 ms (p95 293 ms) después de la primera llamada, que carga el modelo (unos 15 s).
+
 ## Entrenar y medir (`python -m guard.train`)
 
-Arma `guard/artifacts/<modelo>.npz` con `data/mcp_train.jsonl` (pasos 2 a 4), elige los umbrales con `data/mcp_val.jsonl` (paso 5) e imprime las pruebas: centrado, AUC por clase, calibración del desvío por `k` y latencia. Tarda alrededor de un minuto en CPU.
+Arma `guard/artifacts/<modelo>.npz` con `data/mcp_train.jsonl` (pasos 2 a 4), compara los métodos del paso 5 en `data/mcp_val.jsonl`, guarda el elegido con sus umbrales e imprime las pruebas: centrado, AUC por clase, la comparación y la latencia. Tarda unos minutos en CPU. Si se cambia el troceo o los datos, hay que volver a correrlo.
 
 ## 6. Reconstrucción (`rebuild.py`)
 

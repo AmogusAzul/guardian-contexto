@@ -408,7 +408,9 @@ def main() -> None:
     for name, (caught, fp) in results.items():
         print(f"  {name:<26} atrapadas {caught:>4.0%}   legítimas tocadas {fp:>4.0%}")
     ok = {n: r for n, r in results.items() if r[1] <= MAX_FP_OUTPUTS + 0.01}
-    chosen = max(ok or results, key=lambda n: (ok or results)[n][0])
+    best = max(ok or results, key=lambda n: (ok or results)[n][0])
+    print(f"mejor en validación: {best} (la versión 1 usa igual solo ataque; ver docs/algorithm.md)")
+    chosen = "solo ataque"  # versión 1: el desvío no decide
     print(f"elegido: {chosen}; se ajusta con toda la validación")
 
     flag, fitted = METHODS[chosen](scored, train_tables)

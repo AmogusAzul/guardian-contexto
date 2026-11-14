@@ -47,12 +47,17 @@ README.md     qué es, cómo instalar y el comando exacto de la evaluación
 
 ```sh
 uv pip install -e ".[guard]"   # torch para CPU: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-GUARD_MOCK=1 ...               # usa el mock sin dependencias (los pasos de guard/ aún no están escritos)
+GUARD_MOCK=1 ...               # usa el mock sin dependencias
 python -m guard.show_chunks data/mcp_train.jsonl --n 3   # trozos de cada caso y cuáles son la inyección
 python -m guard.train          # datos de referencia (guard/artifacts/) y umbrales; imprime AUC, calibración y latencia
+# AgentDojo con Qwen local y dónde quedan los números: docs/run-numbers.md
+uv pip install -e ".[guard,bench]"   # AgentDojo 0.1.35 + DeBERTa + pytest
+python -m pytest tests         # adaptadores de AgentDojo con un check() falso (sin API ni modelo)
+python -m bench.run_agentdojo --offline -s banking -ut user_task_0 -it injection_task_0   # integración sin API (runs/offline/)
+python -m bench.run_agentdojo -s banking   # las 5 defensas con OpenAI -> results/ (ver bench/README.md)
 ```
 
-Integración agrega aquí y en el README las pruebas, AgentDojo con cada defensa y la evaluación del detector.
+Integración agrega aquí y en el README la evaluación del detector (`bench/eval_detector.py`).
 
 ## Preguntas abiertas (decidir en un checkpoint)
 

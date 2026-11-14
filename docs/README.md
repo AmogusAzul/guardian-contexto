@@ -10,6 +10,8 @@ Fuente de verdad del proyecto, en Markdown para que la lean personas y agentes. 
 | [algorithm.md](algorithm.md) | cómo funciona el guardián, versión 1 y 2, cómo podría fallar |
 | [algorithm-sprint2.md](algorithm-sprint2.md) | ajustes del algoritmo para el segundo sprint |
 | [data-key-attacks.md](data-key-attacks.md) | pedido a Datos: ataques escritos en las claves |
+| [data-banking-negatives.md](data-banking-negatives.md) | pedido a Datos: legítimos de banca (falsos positivos en AgentDojo) |
+| [run-numbers.md](run-numbers.md) | cómo sacar los números de AgentDojo con Qwen local (preparar, probar, correr, dónde quedan) |
 | [check-contract.md](check-contract.md) | contrato de `check()` para quien lo integra |
 | [evaluation.md](evaluation.md) | benchmarks, datos, métricas, líneas base y procedimiento |
 | [team.md](team.md) | roles, cronograma por bloques, checkpoints y reglas |
