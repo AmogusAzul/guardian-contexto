@@ -1,0 +1,111 @@
+{
+  "dataset": "data\\test.csv",
+  "total_muestras": 1562,
+  "total_ataques": 781,
+  "total_benignos": 781,
+  "guardian": {
+    "tasa_deteccion_recall_pct": 77.59,
+    "tasa_falsos_positivos_fpr_pct": 11.27,
+    "tpr_ic95": [
+      0.7454,
+      0.8038
+    ],
+    "fpr_ic95": [
+      0.0924,
+      0.1368
+    ],
+    "tp": 606,
+    "fp": 88,
+    "tn": 693,
+    "fn": 175,
+    "latencia_mediana_ms": 22.072,
+    "latencia_p95_ms": 370.953
+  },
+  "keyword_detector": {
+    "tasa_deteccion_recall_pct": 16.13,
+    "tasa_falsos_positivos_fpr_pct": 0.0,
+    "tp": 126,
+    "fp": 0,
+    "tn": 781,
+    "fn": 655
+  },
+  "desglose_categoria": {
+    "role_hijack": {
+      "total": 40,
+      "g_tp": 11,
+      "g_fp": 0,
+      "g_tn": 0,
+      "g_fn": 29
+    },
+    "tool_output": {
+      "total": 399,
+      "g_tp": 0,
+      "g_fp": 7,
+      "g_tn": 392,
+      "g_fn": 0
+    },
+    "human_adaptive": {
+      "total": 421,
+      "g_tp": 356,
+      "g_fp": 0,
+      "g_tn": 0,
+      "g_fn": 65
+    },
+    "hard_negative": {
+      "total": 382,
+      "g_tp": 0,
+      "g_fp": 81,
+      "g_tn": 301,
+      "g_fn": 0
+    },
+    "task_redirect": {
+      "total": 34,
+      "g_tp": 18,
+      "g_fp": 0,
+      "g_tn": 0,
+      "g_fn": 16
+    },
+    "task_aligned": {
+      "total": 38,
+      "g_tp": 33,
+      "g_fp": 0,
+      "g_tn": 0,
+      "g_fn": 5
+    },
+    "tool_misuse": {
+      "total": 65,
+      "g_tp": 52,
+      "g_fp": 0,
+      "g_tn": 0,
+      "g_fn": 13
+    },
+    "exfiltration": {
+      "total": 80,
+      "g_tp": 75,
+      "g_fp": 0,
+      "g_tn": 0,
+      "g_fn": 5
+    },
+    "fake_authority": {
+      "total": 36,
+      "g_tp": 31,
+      "g_fp": 0,
+      "g_tn": 0,
+      "g_fn": 5
+    },
+    "key_injection": {
+      "total": 30,
+      "g_tp": 11,
+      "g_fp": 0,
+      "g_tn": 0,
+      "g_fn": 19
+    },
+    "instruction_override": {
+      "total": 37,
+      "g_tp": 19,
+      "g_fp": 0,
+      "g_tn": 0,
+      "g_fn": 18
+    }
+  }
+}
