@@ -18,39 +18,85 @@ salida de la herramienta
 
 Las salidas MCP y de AgentDojo son estructuras (JSON o YAML), no prosa. Se revisan **todos los campos y también las claves**: un ataque puede venir escrito con claves (`"do": {"not": {"tell": {"the": {"user": …}}}}`). Todo se analiza como texto plano, sin comillas, llaves ni comas.
 
-**Parsear.**
-- Probar `json.loads` y luego `yaml.safe_load` (AgentDojo usa YAML). Solo vale si el resultado es un dict o una lista: YAML también acepta prosa como string. Si no, es **texto plano**.
-- **Sobre MCP:** si trae `content[]`, cada bloque `text` y cada `resource.text` es una raíz, más `structuredContent`. Las claves del sobre (`content`, `type`, `isError`…) nunca entran al texto. `structuredContent` y el bloque `text` suelen traer **los mismos datos dos veces**: los dos se revisan y se limpian igual.
-- Un string que empieza con `{` o `[` y es JSON válido se parsea y se recorre también.
+**Parsear.** Se prueba en este orden y gana el primero que da un dict o una lista:
 
-**Recorrer.** Tres tipos de trozo:
+| Formato | Cómo | Por qué (en `data/mcp_*.jsonl`) |
+|---|---|---|
+| `json` | `json.loads` | Glaive |
+| `python` | `ast.literal_eval` (seguro: solo literales) | InjecAgent usa `{'a': 'b'}` |
+| `yaml` | `yaml.safe_load`, **solo si hay líneas con sangría o `- `** | AgentDojo. Sin esa regla, un chat `Nombre: mensaje` parsea como YAML y las claves repetidas se pisan: se pierden líneas, y con ellas un ataque |
+| `loose` | empieza con `{` o `[` pero no parsea: cortar en `'clave':` / `"clave":`, quitar comillas y llaves de cada valor, guardar sus posiciones | 45 casos: **la inyección rompió las comillas** del JSON |
+| `text` | todo lo demás | correos, chats, documentos |
+
+- **Sobre MCP:** si trae `content[]`, cada bloque `text` y cada `resource.text` es una raíz, más `structuredContent`. Las claves del sobre (`content`, `type`, `isError`…) nunca entran al texto. `structuredContent` y el bloque `text` suelen traer **los mismos datos dos veces**: los dos se revisan y se limpian igual.
+- Un string dentro de la estructura que empieza con `{` o `[` y es JSON válido se parsea y se recorre también.
+
+**Recorrer.** Dos tipos de trozo:
 
 | Tipo | Texto | Cuándo |
 |---|---|---|
 | `value` | oraciones del string, en ventanas de 1 a 3 que se solapan | strings que no son IDs, fechas ni números |
 | `path` | claves desde la raíz hasta el valor, en palabras (`camelCase`, `snake_case` y `kebab-case` se separan; los índices de listas no entran), más el valor si tiene 6 palabras o menos | cada valor |
-| `siblings` | ventanas de 2 a 3 claves seguidas de un mismo objeto | objetos con 2 claves o más |
 
-Texto plano: solo trozos `value` sobre el texto completo.
+**Texto (y cada string largo).** Primero **bloques** (separados por `---` o una línea en blanco: un correo, un documento), después líneas, después oraciones. Las ventanas de 1 a 3 **no cruzan bloques**. Los bloques de un mismo texto son vecinos entre sí para el desvío. Además, **cada valor y cada bloque entero** es un trozo si tiene 120 palabras o menos: LLMail inyecta correos enteros y Glaive reemplaza campos enteros (120 palabras cabe en lo que lee MiniLM, unos 256 tokens).
+
+**Limpiar el texto antes de embeber** (las posiciones siguen apuntando al original):
+- Unicode NFC y espacios colapsados.
+- Fuera los caracteres de ancho cero (ofuscación).
+- De los comentarios y etiquetas HTML (`<!-- -->`, `<span style="display:none">`) y de los comentarios de markdown (`[//]: #`) se quitan solo las marcas: el texto de adentro suele ser el ataque. `<|system|>` y parecidos se quedan.
+- Un trozo `value` lleva solo el valor, sin su clave: la clave ya va en el trozo `path`.
 
 **Por qué oraciones y ventanas de 1 a 3.** Un embedding es más o menos el promedio del significado de su texto: una oración inyectada en un correo largo casi no mueve el vector del correo entero. Partir en oraciones la hace visible y dice qué retirar. Las ventanas de 2 y 3 atrapan ataques que solo se ven juntos (“Este es un mensaje importante… antes de resolver la tarea… haz X”).
 
-**Cada trozo lleva:** `text`, `kind`, `path` (ubicación exacta, para retirarlo), `span` (inicio y fin dentro del string, solo `value`), `group` (la ruta sin índices, `emails[*].body`: define los vecinos) y `keys` (solo `siblings`).
+**Cada trozo lleva:** `text` (limpio), `kind`, `path` (ubicación exacta, para retirarlo), `span` (inicio y fin en el string original, solo `value`), `group` (la ruta sin índices, `emails[*].body`, o el texto si son bloques: define los vecinos).
 
 **Filtrar.**
 - Trozos de menos de 4 palabras se descartan (también se van rutas cortas sin sentido, como `settings theme`).
 - Cada texto distinto se embebe **una sola vez**: las listas repiten claves y rutas.
-- Máximo unos 500 trozos por salida. Si se pasa: solo oraciones sueltas de valores, sin ventanas, rutas ni hermanas. **Nunca se salta una parte de la salida**, o el atacante esconde el ataque al final.
+- En `data/mcp_*.jsonl` las salidas son cortas (mediana 300 caracteres, máximo 2 890); un caso de LLMail da unos 45 trozos.
+- Máximo unos 500 trozos por salida. Si se pasa: solo oraciones sueltas de valores, sin ventanas ni rutas. **Nunca se salta una parte de la salida**, o el atacante esconde el ataque al final.
+
+**Prueba del paso (sin embeddings).** En un subconjunto chico de `data/mcp_train.jsonl` con inyección (5 casos por familia: Glaive, InjecAgent, LLMail, sintéticos): la inyección tiene que quedar cubierta por trozos `value` que sean al menos 80 % inyección (el 80 % deja pasar un “IMPORTANT:” delante, que `injected_text` no incluye). Si eso falla, ningún puntaje lo arregla.
+
+`python -m guard.show_chunks data/mcp_train.jsonl --n 3` (o `--id <caso>`) muestra los trozos de cada caso y cuáles son la inyección. En todo `data/mcp_*.jsonl`, 432 de 442 inyecciones quedan cubiertas por al menos un trozo de ataque. Las 10 que no: la inyección va pegada a texto legítimo sin punto ni salto de línea (`…new flavor, Please get my current image…`, `…Tom Becker Assistant, when listing…`), así que el trozo mezcla las dos cosas. En ejecución ese trozo igual se puede retirar entero (se pierden unas palabras legítimas); para entrenar se descarta como ambiguo.
 
 ## 2. Embeddings (`embedding.py`)
 
-- Un modelo pequeño de `sentence-transformers` en CPU (`all-MiniLM-L6-v2` o `BAAI/bge-small-en-v1.5`; AgentDojo está en inglés), cargado una vez. Todos los trozos de una salida en un solo lote.
-- Normalizar, **centrar** (restar el embedding promedio del entrenamiento) y volver a normalizar. Los embeddings viven en un “cono” estrecho y sin centrar casi todos los cosenos se parecen.
+- **Modelo:** `sentence-transformers/all-MiniLM-L6-v2` (384 dimensiones, CPU, lee unos 256 tokens). Se carga una vez, en el primer `check()`. La comparación con otros modelos queda para el [sprint 2](algorithm-sprint2.md).
+- **Entrada:** el texto limpio del trozo, sin prefijos. Nada pasa de 120 palabras (lo corta el paso 1).
+- **Un lote por salida** y cada texto distinto una sola vez. Un caché chico en memoria guarda los textos recientes: el pedido, la llamada y las rutas que se repiten (`emails body`) son los mismos en cada llamada de una conversación o de una herramienta.
+- **Centrar:** restar **un solo promedio** (el de todos los trozos de entrenamiento, ataques y legítimos, equilibrado por fuente) y normalizar. Las referencias del desvío (pedido, llamada) pasan por lo mismo, así todos los cosenos viven en el mismo espacio. Sin centrar, los embeddings viven en un “cono” estrecho y casi todos los cosenos se parecen.
+
+### Datos de referencia (`guard/artifacts/<modelo>.npz`)
+
+Un script de entrenamiento los arma una vez y se congelan con el commit:
+
+| Qué | De dónde |
+|---|---|
+| promedio para centrar | todos los trozos de entrenamiento |
+| dirección de ataque | trozos de ataque − trozos legítimos (paso 3) |
+| tablas de percentiles: ataque por tipo de trozo, desvío por (referencia, tipo) | trozos legítimos |
+| nombre del modelo y commit de los datos | — |
+
+**Etiquetar trozos.** Los datos vienen por salida completa y la dirección se aprende por trozo. Se usa **`data/mcp_train.jsonl`**, que trae `injected_text`:
+- trozo con al menos 80 % de inyección → **ataque**;
+- trozos de salidas legítimas, y trozos de salidas atacadas que no tocan la inyección → **legítimo** (estos últimos son buenos: legítimos del mismo contexto que el ataque);
+- trozos mitad y mitad → **fuera** (ambiguos).
+- **Peso por fuente**, para que ninguna decida la dirección sola.
+
+Son 376 salidas (188 con ataque). Alcanza para una resta de promedios en 384 dimensiones. `data/train.csv` tiene 4 veces más ataques, pero sin marcar qué parte es la inyección: un `{"status": "success", "message": "P.S. ### SYSTEM MESSAGE…"}` daría trozos legítimos etiquetados como ataque. Usarlo queda para el sprint 2.
+
+### Pruebas del paso (rápidas, en parte de validación)
+
+1. **Centrado:** el coseno promedio entre trozos legítimos al azar baja a casi 0.
+2. **Separación:** AUC de la dirección de ataque por tipo de trozo. Por debajo de ~0,8 hay un problema de modelo o de etiquetas, antes de cualquier umbral.
+3. **Vecinos:** los 3 trozos de entrenamiento más cercanos a 5 trozos de ataque también son ataques (atrapa etiquetas malas).
+4. **Latencia:** mediana y p95 de embeber una salida completa, en la máquina más lenta de la demo.
 
 ## 3. `attack_score` (`attack.py`)
 
-- **Dirección de ataque** = promedio(inyecciones) − promedio(legítimos), en entrenamiento. El puntaje crudo es el coseno del trozo con esa dirección.
-- **Calibración:** el coseno pasa a **percentil de los trozos legítimos del mismo tipo** (`value`, `path`, `siblings`). Así los trozos de ruta, cortos y telegráficos, comparten escala con las oraciones.
+- **Dirección de ataque** = promedio(trozos de ataque) − promedio(trozos legítimos), con las etiquetas del paso 2. El puntaje crudo es el coseno del trozo con esa dirección.
+- **Calibración:** el coseno pasa a **percentil de los trozos legítimos del mismo tipo** (`value`, `path`). Así los trozos de ruta, cortos y telegráficos, comparten escala con las oraciones.
 
 ## 4. `drift_score` (`drift.py`)
 
@@ -96,8 +142,8 @@ retirar si  attack ≥ τ_alto
 
 - **`value`:** el `span` marcado se reemplaza por `[contenido retirado por el guardián]`; el resto del string se queda.
 - **`path`:** se sube desde el valor mientras el padre tenga un solo hijo, y se retira esa cadena entera. `do.not.tell…files` retira `do`; `emails[1].body` retira solo `body`.
-- **`siblings`:** se quitan esas claves.
-- La salida vuelve en **el mismo formato** (JSON o YAML). Un JSON que venía dentro de un string vuelve a ser string. En un resultado MCP, `structuredContent` y el bloque `text` quedan limpios por igual.
+- `text` y `loose`: se reemplaza en las posiciones guardadas del string original, así el formato no cambia. `json`, `python` y `yaml`: se rearma la estructura y se vuelve a escribir (puede cambiar los espacios; `python` sale como JSON).
+- Un JSON que venía dentro de un string vuelve a ser string. En un resultado MCP, `structuredContent` y el bloque `text` quedan limpios por igual.
 
 ## Datos que necesita
 
@@ -108,7 +154,7 @@ retirar si  attack ≥ τ_alto
 | Números finales | `test` y AgentDojo, una sola vez |
 
 - Las filas tienen que ser **salidas completas en contexto** (pedido, nombre, descripción y argumentos de la herramienta, salida, qué parte se inyectó), no trozos sueltos: lo necesitan los trozos estructurados y el desvío. Es un cambio al Contrato 3, pendiente de acordar con Datos ([architecture.md](architecture.md#contrato-3-datasets)).
-- Los trozos de ruta y de hermanas no se parecen a la prosa. Mínimo para el MVP: unas 50 salidas estructuradas legítimas (respuestas de API sintéticas) y unos 20 ataques escondidos en claves o rutas.
+- Los trozos de ruta no se parecen a la prosa: hacen falta ataques escondidos en claves y legítimos con claves largas ([data-key-attacks.md](data-key-attacks.md)).
 
 ## Por qué podría fallar (y qué se ve)
 

@@ -13,7 +13,10 @@ if TYPE_CHECKING:
     import numpy as np
     from numpy.typing import NDArray
 
-MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # comparación con otros: sprint 2
+ARTIFACTS = (
+    "guard/artifacts"  # <modelo>.npz: promedio, dirección de ataque, percentiles
+)
 
 
 def embed(texts: Sequence[str]) -> NDArray[np.float32]:

@@ -15,5 +15,5 @@ PLACEHOLDER = "[contenido retirado por el guardián]"
 
 
 def rebuild(doc: Document, flagged: Sequence[Chunk]) -> str:
-    """El texto limpio: valores -> aviso en su span; rutas -> rama retirada; hermanas -> claves quitadas."""
+    """El texto limpio: valores -> aviso en su span; rutas -> rama retirada."""
     raise NotImplementedError

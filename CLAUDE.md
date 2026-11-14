@@ -48,6 +48,7 @@ README.md     qué es, cómo instalar y el comando exacto de la evaluación
 ```sh
 uv pip install -e ".[guard]"   # torch para CPU: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
 GUARD_MOCK=1 ...               # usa el mock sin dependencias (los pasos de guard/ aún no están escritos)
+python -m guard.show_chunks data/mcp_train.jsonl --n 3   # trozos de cada caso y cuáles son la inyección
 ```
 
 Integración agrega aquí y en el README las pruebas, AgentDojo con cada defensa y la evaluación del detector.

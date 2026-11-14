@@ -18,7 +18,7 @@ permitido, info = check(salida_de_herramienta, tarea="Pay my rent bill for this 
 |---|---|---|
 | `permitido` | `bool` | `True` si no se marcó ningún trozo |
 | `info["texto_limpio"]` | `str` | el texto con los trozos marcados reemplazados por `[contenido retirado por el guardián]` |
-| `info["trozos_marcados"]` | `list[dict]` | cada uno con `texto`, `tipo` (`value`, `path`, `siblings`), `ruta` (`$.emails[1].body`), `attack_score`, `drift_score` |
+| `info["trozos_marcados"]` | `list[dict]` | cada uno con `texto`, `tipo` (`value` o `path`), `ruta` (`$.emails[1].body`), `attack_score`, `drift_score` |
 | `info["attack_score"]` | `float` 0–1 | el máximo entre los trozos |
 | `info["drift_score"]` | `float` 0–1 o `None` | el del trozo con mayor `attack_score`; `None` sin tarea |
 | `info["latencia_ms"]` | `float` | tiempo de `check()` |
