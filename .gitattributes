@@ -1,0 +1,5 @@
+# Datos: guardar byte a byte. Los textos del corpus tienen saltos de línea dentro de los campos;
+# si git los convierte (core.autocrlf), el texto cambia según el sistema de quien clona.
+data/*.csv -text
+data/*.jsonl -text
+data/pools/*.jsonl -text
