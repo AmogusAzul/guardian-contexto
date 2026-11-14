@@ -24,3 +24,4 @@ La hackathon exige citar todo código, dataset, librería o fragmento generado c
 | PyYAML | https://github.com/yaml/pyyaml | MIT | `guard/chunking.py` (salidas YAML de AgentDojo) |
 | PyTorch, NumPy | https://pytorch.org, https://numpy.org | BSD-3-Clause | `guard/` |
 | Esqueleto del guardián (`guard/`), primera versión (rama `algorithm-v0`) y `data/seed.csv` (filas sintéticas) | Generados con asistencia de IA (Claude) | — | `guard/`, `data/seed.csv` |
+| Combinación aprendida de puntajes, presupuesto conformal del umbral y comparación de métodos (rama `algo-polish`) | Generados con asistencia de IA (Claude); el presupuesto sigue la idea de *split conformal prediction* (Vovk et al.) | — | `guard/stack.py`, `guard/train.py`, `guard/decision.py` |
