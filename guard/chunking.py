@@ -24,6 +24,9 @@ Path = tuple[PathKey, ...]
 
 WINDOWS = (1, 2, 3)  # oraciones por ventana, en trozos de valor
 MIN_WORDS = 4  # trozos más cortos se descartan
+MIN_PATH_WORDS = (
+    3  # en una ruta, 3 palabras ya pueden ser una orden ("transfer savings to")
+)
 SHORT_VALUE_WORDS = 6  # hasta aquí el valor también entra al trozo de ruta
 MAX_CHUNKS = 500  # por encima: solo oraciones sueltas de valores
 WHOLE_MAX_WORDS = 120  # valores y bloques enteros hasta aquí también son un trozo
@@ -129,12 +132,17 @@ _BLOCK = re.compile(r"\n[ \t]*-{3,}[ \t]*\n|\n[ \t]*\n")
 # Cortes dentro de una línea. Además del fin de oración, cortes genéricos donde un texto pegado
 # sin punto suele empezar algo nuevo (en data/, ahí venían inyecciones pegadas a texto legítimo):
 _SENTENCE = re.compile(
-    r"(?<=[.!?])\s+(?=[A-Z\"'(<#\[>—])"  # fin de oración (también antes de "> cita" y "— firma")
+    # fin de oración, también antes de "> cita", "— firma" y Markdown (**, *, -, `, _, 1.)
+    r"(?<=[.!?])\s+(?=[A-Z\"'(<#\[>—*\-`_0-9])"
     r"|\s+(?=<[a-zA-Z/!])"  # antes de una etiqueta o comentario HTML
     r"|\s+(?=\[//\]:)"  # antes de un comentario de markdown
     r"|(?<=,)\s+(?=[A-Z][a-z]+\s)"  # coma y una cláusula que empieza con mayúscula
 )
 _HTML_TAG = re.compile(r"</?[a-zA-Z][^<>]{0,200}>")  # no toca <|system|>
+_MD_INLINE = re.compile(r"\*\*|__|`")
+_MD_LINE_START = re.compile(
+    r"^[ \t]*(?:>+[ \t]*|[-*+][ \t]+|\d+[.)][ \t]+)", re.MULTILINE
+)
 _ABBREV = re.compile(
     r"\b(?:Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr|Inc|Ltd|Co|vs|etc|e\.g|i\.e|No|Fig)\.$"
 )
@@ -153,6 +161,8 @@ def clean(t: str) -> str:
     t = _HTML_TAG.sub(
         " ", t
     )  # <span style="display:none">…</span>: queda el texto de adentro
+    t = _MD_INLINE.sub(" ", t)  # **negrita**, __negrita__, `código`: queda el texto
+    t = _MD_LINE_START.sub("", t)  # "> cita", "- viñeta", "1. lista" al comienzo
     return re.sub(r"\s+", " ", t).strip()
 
 
@@ -318,7 +328,7 @@ def chunk(text: str) -> tuple[Document, list[Chunk]]:
     first: dict[tuple[str, str], int] = {}
     chunks: list[Chunk] = []
     for c in raw:
-        if len(c.text.split()) < MIN_WORDS:
+        if len(c.text.split()) < (MIN_PATH_WORDS if c.kind == "path" else MIN_WORDS):
             continue
         key = (c.kind, c.text)
         if (
