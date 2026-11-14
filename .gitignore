@@ -11,3 +11,6 @@ __pycache__/
 *.egg-info/
 .venv/
 .env
+
+# Datos crudos descargados (LLMail-Inject pesa ~500 MB); se regeneran con data/build.py
+data/raw/
