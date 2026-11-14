@@ -147,7 +147,7 @@ def clean(t: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def _key_words(k: PathKey) -> str:
+def key_words(k: PathKey) -> str:
     k = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(k))
     k = re.sub(
         r"([A-Z]+)([A-Z][a-z])", r"\1 \2", k
@@ -232,7 +232,7 @@ def _walk(
             node = tree
     if isinstance(node, dict):
         for k, v in node.items():
-            _walk(v, (*path, k), [*keys, _key_words(k)], doc, out)
+            _walk(v, (*path, k), [*keys, key_words(k)], doc, out)
     elif isinstance(node, list):
         for i, v in enumerate(node):
             _walk(v, (*path, i), keys, doc, out)

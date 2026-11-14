@@ -133,9 +133,9 @@ Con `origen="manifiesto"` (descripciones de herramientas, MCPTox) no hay pedido:
 | Cantidad de vecinos | el coseno con un promedio crece con la cantidad | promedio de cosenos (arriba) |
 | Herramienta o dominio | hay herramientas cuyos datos están naturalmente lejos del pedido | no se calibra por herramienta (en ejecución son nuevas); los vecinos lo absorben en parte. Límite aceptado |
 
-Así quedan unas 18 tablas de desvío (3 referencias × 2 tipos × 3 tamaños) y 6 de ataque (2 tipos × 3 tamaños), cada una con 101 percentiles de los trozos legítimos de entrenamiento. Entre puntos se interpola; fuera del rango se recorta a 0 o 1. **La llamada se arma igual al calibrar y en ejecución** (mismos campos): si en ejecución se agregara un campo que no estaba al calibrar, los cosenos subirían y el desvío saldría bajo sin razón.
+Así quedan unas 18 tablas de desvío (3 referencias × 2 tipos × 3 tamaños) y 6 de ataque (2 tipos × 3 tamaños), cada una con 101 percentiles de los trozos legítimos de entrenamiento. Entre puntos se interpola. **La cola alta no se satura:** por encima del percentil 95 se usa una cola exponencial que pasa por los percentiles 95 y 99, así un valor más alto que todos los legítimos de entrenamiento sigue ordenado (0,999, 0,9999…) en vez de quedar en 1 junto con todos los demás. Sin esto, en validación el 40 % de los ataques y el 6 % de las salidas legítimas quedaban empatados en 1 y no había umbral posible. **La llamada se arma igual al calibrar y en ejecución** (mismos campos): si en ejecución se agregara un campo que no estaba al calibrar, los cosenos subirían y el desvío saldría bajo sin razón.
 
-**Prueba de la calibración.** En los trozos legítimos de validación, `drift` tiene que quedar **parejo** entre 0 y 1 para cada `k` (cerca de 10 % en cada décimo). Si se cumple, `τ_drift = 0,95` significa de verdad 5 % de los legítimos. Si un `k` se desvía, ese `k` lleva su propio umbral.
+**Prueba de la calibración.** En los trozos legítimos de validación, `drift` tiene que quedar **parejo** entre 0 y 1 para cada `k` (cerca de 10 % en cada décimo). Como las referencias no son independientes, `1 − mᵏ` no queda del todo parejo. Por eso pasa por **una última tabla por `k`** (los mismos legítimos de entrenamiento): ahí sí queda parejo en entrenamiento por construcción, y `τ_drift = 0,95` significa 5 % de los legítimos. En validación se mira cuánto se mueve.
 
 **Sin ninguna referencia** (texto plano de una oración, sin tarea ni herramienta): `drift = None`.
 
@@ -150,7 +150,11 @@ retirar si  attack ≥ τ_alto
 
 - El desvío solo decide en la zona gris del ataque: nunca retira nada solo. Un texto fuera de tema pero inofensivo se queda (también es la protección contra usar el guardián para censurar).
 - Entre ventanas que se solapan, gana la más corta: una oración maliciosa no arrastra a sus vecinas legítimas.
-- **Umbrales por salida, no por trozo.** Una salida es un falso positivo si se le retira **cualquier** trozo. Con 1 % de falsos positivos por trozo, una salida de 45 trozos pierde algo el 36 % de las veces (1 − 0,99⁴⁵). Los tres umbrales se eligen juntos en validación con una búsqueda en rejilla: la combinación que más ataques atrapa con a lo más 5 % de salidas legítimas tocadas.
+- **Umbrales por salida, no por trozo.** Una salida es un falso positivo si se le retira **cualquier** trozo. Con 1 % de falsos positivos por trozo, una salida de 45 trozos pierde algo el 36 % de las veces (1 − 0,99⁴⁵). Los tres umbrales se eligen juntos en validación con una búsqueda en rejilla: la combinación que más salidas atacadas atrapa (con un trozo de ataque retirado) con a lo más 5 % de salidas legítimas tocadas. Los candidatos salen de los datos: para `τ_alto`, percentiles altos del máximo de ataque de cada salida legítima; para `τ_bajo`, percentiles del ataque de los trozos legítimos.
+
+## Entrenar y medir (`python -m guard.train`)
+
+Arma `guard/artifacts/<modelo>.npz` con `data/mcp_train.jsonl` (pasos 2 a 4), elige los umbrales con `data/mcp_val.jsonl` (paso 5) e imprime las pruebas: centrado, AUC por clase, calibración del desvío por `k` y latencia. Tarda alrededor de un minuto en CPU.
 
 ## 6. Reconstrucción (`rebuild.py`)
 
