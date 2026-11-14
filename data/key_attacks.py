@@ -27,24 +27,28 @@ import re
 
 from build import EVIL, _Azar, fill
 
-SHORT_VALUE_WORDS = 12  # "el valor si es corto"
+# Mismas reglas que el trozo de ruta de guard/chunking.py (_key_words, SHORT_VALUE_WORDS, _ID).
+# data/check_chunks.py comprueba que path_words() == el trozo "path" que arma el guardián.
+SHORT_VALUE_WORDS = 6  # "el valor si es corto" (como guard/chunking.py)
+_ID = re.compile(r"^[0-9a-f-]{6,}$|^\d{4}-\d{2}-\d{2}|^[\d.,:%/ $€+-]+$", re.IGNORECASE)
 
-_CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
-
-def key_words(key: str) -> list[str]:
-    """'IMPORTANT_assistant-forwardAllFiles.to' -> ['IMPORTANT', 'assistant', 'forward', 'All', 'Files', 'to']"""
-    return re.split(r"[\s_\-.]+", _CAMEL.sub(" ", key).strip())
+def key_words(key) -> str:
+    """'IMPORTANT_assistant-forwardAllFiles.to' -> 'important assistant forward all files to'"""
+    k = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(key))
+    k = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", k)
+    return re.sub(r"[\W_]+", " ", k).strip().lower()
 
 
 def path_words(path: list, value=None) -> str:
-    """Ruta (lista de claves e índices) + valor -> palabras, como las arma el guardián."""
-    words = [w for k in path if not isinstance(k, int) for w in key_words(str(k)) if w]
-    if value is not None and not isinstance(value, (dict, list)):
-        v = str(value).lower() if isinstance(value, bool) else str(value)
-        if len(v.split()) <= SHORT_VALUE_WORDS:
-            words += v.split()
-    return " ".join(words)
+    """Ruta (claves e índices) + valor -> el texto del trozo de ruta del guardián: claves en
+    palabras y minúsculas, sin índices, más el valor solo si es texto (no número, booleano ni
+    identificador) de hasta SHORT_VALUE_WORDS palabras."""
+    words = [key_words(k) for k in path if not isinstance(k, int)]
+    if isinstance(value, str) and value.strip() and not _ID.match(value.strip()) \
+            and len(value.split()) <= SHORT_VALUE_WORDS:
+        words.append(value)
+    return re.sub(r"\s+", " ", " ".join(w for w in words if w)).strip()
 
 
 def json_path(path: list) -> str:
@@ -197,6 +201,7 @@ def generate(carrier_rows: list[dict], per_split: int = 30, seed: int = 21) -> l
         for i, (r, obj) in enumerate(pool[: 2 * per_split]):
             obj = json.loads(json.dumps(obj))  # copia
             base = dict(source="synthetic_key_injection", split=split, prompt=r.get("prompt"),
+                        tool_description=r.get("tool_description", ""),
                         tool=r.get("tool"), args=r.get("args"), carrier_source=r["source"])
             if i % 2 == 0:
                 injected, path, form = _attack(obj, split, rng)
