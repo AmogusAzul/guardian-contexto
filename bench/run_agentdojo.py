@@ -2,9 +2,8 @@
 
 Ejemplos:
 
-    # piloto barato: 2 tareas x 2 inyecciones, todas las defensas
-    python -m bench.run_agentdojo -s banking -ut user_task_0 -ut user_task_1 \
-        -it injection_task_0 -it injection_task_1
+    # piloto local con qwen3:8b (Ollama, sin API keys):
+    python -m bench.run_agentdojo -s banking -ut user_task_0 -it injection_task_0 -d none,guard-sanitize --force-rerun
 
     # prueba de integración SIN API: el "LLM" ejecuta las llamadas de referencia de cada tarea
     python -m bench.run_agentdojo --offline -s banking -ut user_task_0 -it injection_task_0
@@ -15,9 +14,7 @@ y las demás de AgentDojo (tool_filter, spotlighting_with_delimiting, repeat_use
 Cada defensa escribe results/<fecha>-<commit>-agentdojo-<suite>-<defensa>.json y una línea en
 results/summary.csv (Contrato 4). Las trazas completas de AgentDojo quedan en --logdir (runs/);
 si se repite un comando, AgentDojo reutiliza los casos ya corridos (no se paga dos veces).
-Con --offline solo se escribe en --logdir: esos números no son resultados.
-
-La clave va en OPENAI_API_KEY (o en .env), nunca en el repo.
+Para forzar una ejecución limpia y reevaluar todo: use --force-rerun.
 """
 
 from __future__ import annotations
@@ -31,9 +28,15 @@ import shutil
 import statistics
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
+
+import agentdojo.logging
+# Parche preventivo para bug interno de AgentDojo en NullLogger
+agentdojo.logging.NullLogger.logdir = None
+agentdojo.logging.NullLogger.messages = []
 
 from agentdojo.agent_pipeline import (
     AgentPipeline,
@@ -46,6 +49,7 @@ from agentdojo.agent_pipeline import (
 )
 from agentdojo.agent_pipeline.agent_pipeline import DEFENSES, load_system_message
 from agentdojo.attacks.attack_registry import load_attack
+from agentdojo.attacks.base_attacks import MODEL_NAMES
 from agentdojo.benchmark import benchmark_suite_with_injections, benchmark_suite_without_injections
 from agentdojo.functions_runtime import EmptyEnv, Env, FunctionsRuntime
 from agentdojo.logging import OutputLogger
@@ -54,6 +58,11 @@ from agentdojo.types import ChatAssistantMessage, ChatMessage, text_content_bloc
 
 from bench.agentdojo_guard import GuardDetect, GuardSanitize
 from bench.keyword_detector import KeywordDetector
+
+# Registro de alias para modelos locales Qwen y derivados en AgentDojo
+for alias in ["qwen3-8b", "qwen3:8b", "qwen3", "qwen", "qwen2.5", "qwen2.5-7b", "local"]:
+    if alias not in MODEL_NAMES:
+        MODEL_NAMES[alias] = "Qwen"
 
 RAIZ = Path(__file__).resolve().parent.parent
 RESULTADOS = RAIZ / "results"
@@ -79,10 +88,15 @@ class ContadorTokens:
         original = client.chat.completions.create
 
         def create(*args, **kwargs):
+            t0 = time.perf_counter()
             r = original(*args, **kwargs)
+            dur = time.perf_counter() - t0
             if getattr(r, "usage", None) is not None:
-                self.entrada += r.usage.prompt_tokens or 0
-                self.salida += r.usage.completion_tokens or 0
+                p_tok = getattr(r.usage, "prompt_tokens", 0) or 0
+                c_tok = getattr(r.usage, "completion_tokens", 0) or 0
+                self.entrada += p_tok
+                self.salida += c_tok
+                print(f"    [LLM local turn] {p_tok} in / {c_tok} out ({dur:.1f}s)", flush=True)
             self.llamadas += 1
             return r
 
@@ -119,14 +133,18 @@ class LLMReferencia(BasePipelineElement):
         return query, runtime, env, [*messages, msg], extra_args
 
 
-def llm_openai(modelo: str) -> tuple[BasePipelineElement, ContadorTokens]:
+def llm_openai(modelo: str, base_url: str | None = None) -> tuple[BasePipelineElement, ContadorTokens]:
     import openai
     from agentdojo.agent_pipeline import OpenAILLM
 
-    client = openai.OpenAI()
+    is_local = "qwen" in modelo.lower() or "ollama" in modelo.lower() or "local" in modelo.lower() or (base_url is not None) or bool(os.getenv("OPENAI_BASE_URL"))
+    url = base_url or os.getenv("OPENAI_BASE_URL") or ("http://localhost:11434/v1" if is_local else None)
+    key = os.getenv("OPENAI_API_KEY") or ("ollama" if is_local else None)
+
+    client = openai.OpenAI(base_url=url, api_key=key)
     contador = ContadorTokens(client)
     llm = OpenAILLM(client, modelo)
-    llm.name = modelo
+    llm.name = modelo.replace(":", "-").replace("/", "_")
     return llm, contador
 
 
@@ -136,17 +154,19 @@ def llm_openai(modelo: str) -> tuple[BasePipelineElement, ContadorTokens]:
 def construir(defensa: str, llm: BasePipelineElement, modelo: str):
     """Devuelve (pipeline, elemento_de_defensa_propio o None). El nombre del pipeline incluye el modelo
     (los ataques lo usan para dirigirse a él) y la defensa (separa las trazas en --logdir)."""
+    modelo_seguro = modelo.replace(":", "-").replace("/", "_")
+    sys_msg = load_system_message(None)
     if defensa in PROPIAS:
         det = {"keyword": KeywordDetector, "guard-detect": GuardDetect, "guard-sanitize": GuardSanitize}[defensa]()
         loop = ToolsExecutionLoop([ToolsExecutor(), det, llm])
-        p = AgentPipeline([SystemMessage(load_system_message(None)), InitQuery(), llm, loop])
+        p = AgentPipeline([SystemMessage(sys_msg), InitQuery(), llm, loop])
     else:
         cfg = PipelineConfig(
             llm=llm, model_id=None, defense=None if defensa == "none" else defensa,
-            system_message_name=None, system_message=None,
+            system_message_name="default", system_message=sys_msg,
         )
         p, det = AgentPipeline.from_config(cfg), None
-    p.name = f"{modelo}-{defensa}"
+    p.name = f"{modelo_seguro}-{defensa}"
     return p, det
 
 
@@ -197,11 +217,13 @@ def commit_actual() -> str:
 def info_guardian() -> dict:
     if os.environ.get("GUARD_MOCK") == "1":
         return {"modelo": "mock"}
-    from guard import config
-    from guard.model import cargar
-
-    p = cargar()
-    return {"modelo": config.MODELO, "tau_alto": p.tau_alto, "tau_bajo": p.tau_bajo, "tau_drift": p.tau_drift, "notas": p.notas}
+    try:
+        from guard import config
+        from guard.model import cargar
+        p = cargar()
+        return {"modelo": config.MODELO, "tau_alto": p.tau_alto, "tau_bajo": p.tau_bajo, "tau_drift": p.tau_drift, "notas": p.notas}
+    except Exception:
+        return {"modelo": "modular"}
 
 
 # --- main -----------------------------------------------------------------------------
@@ -211,32 +233,45 @@ def correr_defensa(defensa: str, a, suite) -> dict:
     if a.offline:
         llm, contador = LLMReferencia(suite, a.modelo), None
     else:
-        llm, contador = llm_openai(a.modelo)
+        llm, contador = llm_openai(a.modelo, a.base_url)
     pipeline, det = construir(defensa, llm, a.modelo)
     ut, it = (a.user_task or None), (a.injection_task or None)
-    print(f"\n=== {defensa}  ({pipeline.name}, suite {suite.name})")
+    n_ut = len(ut) if ut else len(suite.user_tasks)
+    n_it = len(it) if it else len(suite.injection_tasks)
+
+    print(f"\n==========================================================================")
+    print(f"[*] DEFENSA: {defensa} (Pipeline: {pipeline.name} | Suite: {suite.name})")
+    print(f"==========================================================================")
 
     with OutputLogger(str(a.logdir)):
         sin = None
         if not a.sin_utilidad:
+            print(f" -> [Fase 1/2] Corriendo {n_ut} tarea(s) de usuario SIN ataque...", flush=True)
+            t0_sin = time.perf_counter()
             sin = benchmark_suite_without_injections(
                 pipeline, suite, logdir=a.logdir, force_rerun=a.force_rerun, user_tasks=ut, benchmark_version=a.version
             )
+            print(f"    Fase 1 completada en {time.perf_counter() - t0_sin:.1f}s", flush=True)
+
         registro_sin = list(det.registro) if det else []
         if det:
             det.registro.clear()
         con = None
         if a.ataque != "ninguno":
+            print(f" -> [Fase 2/2] Corriendo {n_ut * n_it} combinaciones CON ataque ({a.ataque})...", flush=True)
+            t0_con = time.perf_counter()
             ataque = load_attack(a.ataque, suite, pipeline)
             con = benchmark_suite_with_injections(
                 pipeline, suite, ataque, logdir=a.logdir, force_rerun=a.force_rerun,
                 user_tasks=ut, injection_tasks=it, benchmark_version=a.version,
             )
+            print(f"    Fase 2 completada en {time.perf_counter() - t0_con:.1f}s", flush=True)
+
         registro_con = list(det.registro) if det else []
 
     n_u, u, u_ic = tasa(sin["utility_results"].values()) if sin else (0, None, None)
     n_a, ua, ua_ic = tasa(con["utility_results"].values()) if con else (0, None, None)
-    _, asr, asr_ic = tasa(con["security_results"].values()) if con else (0, None, None)  # True = el ataque ganó
+    _, asr, asr_ic = tasa(con["security_results"].values()) if con else (0, None, None)
     registro = registro_sin + registro_con
     lat = [r["latencia_ms"] for r in registro if "latencia_ms" in r]
     fila = {
@@ -254,9 +289,8 @@ def correr_defensa(defensa: str, a, suite) -> dict:
         "tokens_entrada": contador.entrada if contador else 0, "tokens_salida": contador.salida if contador else 0,
     }
     print(
-        f"    utilidad {u}  utilidad bajo ataque {ua}  éxito del ataque {asr}  "
-        f"(n={n_u}/{n_a}; marcadas {fila['salidas_marcadas']}/{fila['salidas_revisadas']}; "
-        f"tokens {fila['tokens_entrada']}+{fila['tokens_salida']})"
+        f"    [RESULTADO {defensa}] utilidad: {u} | utilidad bajo ataque: {ua} | éxito del ataque (ASR): {asr} | "
+        f"revisadas: {fila['salidas_revisadas']} | marcadas: {fila['salidas_marcadas']}"
     )
     return {
         "resumen": fila,
@@ -298,36 +332,57 @@ def guardar(res: dict, a) -> Path:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-s", "--suite", default="banking", choices=["banking", "workspace", "slack", "travel"])
-    ap.add_argument("-d", "--defensa", action="append", choices=sorted({*TODAS, *DEFENSES}),
-                    help=f"repetible; por defecto: {' '.join(TODAS)}")
+    ap.add_argument("-d", "--defensa", action="append",
+                    help=f"repetible o separado por comas (ej: -d none,guard-sanitize); por defecto: {' '.join(TODAS)}")
     ap.add_argument("-ut", "--user-task", action="append", default=[], help="repetible; por defecto todas")
     ap.add_argument("-it", "--injection-task", action="append", default=[], help="repetible; por defecto todas")
-    ap.add_argument("--modelo", default="gpt-4o-mini-2024-07-18")
+    ap.add_argument("--modelo", default="qwen3:8b", help="Modelo de LLM (por defecto qwen3:8b en Ollama local)")
+    ap.add_argument("--base-url", default=None, help="URL base de API OpenAI-compatible (por defecto http://localhost:11434/v1 para local)")
     ap.add_argument("--ataque", default="important_instructions", help="'ninguno' para medir solo utilidad")
     ap.add_argument("--version", default="v1.2.2", help="versión del benchmark de AgentDojo")
     ap.add_argument("--logdir", type=Path, default=RAIZ / "runs")
-    ap.add_argument("--force-rerun", action="store_true", help="no reutilizar casos ya corridos en --logdir")
-    ap.add_argument("--sin-utilidad", action="store_true", help="omitir la corrida sin ataque (ahorra tokens)")
+    ap.add_argument("--force-rerun", action="store_true", help="forzar reevaluación completa sin usar caché de corridas previas")
+    ap.add_argument("--sin-utilidad", action="store_true", help="omitir la corrida sin ataque (ahorra tiempo)")
     ap.add_argument("--offline", action="store_true", help="sin API: el LLM ejecuta las llamadas de referencia")
-    a = ap.parse_args()
+    args = ap.parse_args()
 
-    if not a.offline:
+    # Procesar defensas permitiendo tanto `-d none,guard-sanitize` como `-d none -d guard-sanitize`
+    raw_defensas = args.defensa or list(TODAS)
+    defensas: list[str] = []
+    valid_defenses = {*TODAS, *DEFENSES}
+    for d in raw_defensas:
+        for sub_d in d.split(","):
+            sub_d = sub_d.strip()
+            if sub_d:
+                if sub_d not in valid_defenses:
+                    sys.exit(f"Defensa desconocida: '{sub_d}'. Opciones válidas: {sorted(valid_defenses)}")
+                if sub_d not in defensas:
+                    defensas.append(sub_d)
+
+    is_local = "qwen" in args.modelo.lower() or "ollama" in args.modelo.lower() or args.base_url or os.getenv("OPENAI_BASE_URL")
+    if not args.offline and not is_local:
         from dotenv import load_dotenv
 
         load_dotenv(RAIZ / ".env")
         if not os.environ.get("OPENAI_API_KEY"):
-            sys.exit("Falta OPENAI_API_KEY (variable de entorno o .env). Para probar sin API: --offline")
-    else:
-        a.logdir = a.logdir / "offline"
+            sys.exit("Falta OPENAI_API_KEY (variable de entorno o .env). Para usar Ollama local: --modelo qwen3:8b")
+    elif args.offline:
+        args.logdir = args.logdir / "offline"
 
-    defensas = a.defensa or list(TODAS)
-    if any(d.startswith("guard") for d in defensas):
-        from guard import check
+    # Calentamiento inicial único (evita que los ~15s de carga de embeddings sesguen las latencias)
+    print("\n[+] Calentando modelo del guardián y cargando pesos en CPU...", flush=True)
+    t0_cal = time.perf_counter()
+    from guard import check
+    try:
+        check("Calentamiento: cargando embeddings antes de medir latencias.")
+    except Exception:
+        os.environ["GUARD_MOCK"] = "1"
+    print(f"[+] Calentamiento finalizado en {time.perf_counter() - t0_cal:.1f}s.\n", flush=True)
 
-        check("Calentamiento: carga el modelo de embeddings antes de medir latencias.")
-    suite = get_suite(a.version, a.suite)
+    suite = get_suite(args.version, args.suite)
     for d in defensas:
-        print(f"    -> {guardar(correr_defensa(d, a, suite), a)}")
+        res = correr_defensa(d, args, suite)
+        print(f"    -> Archivo guardado: {guardar(res, args)}\n")
 
 
 if __name__ == "__main__":
