@@ -3,8 +3,8 @@
 Retirar si attack >= tau_high, o si attack >= tau_low y drift >= tau_drift: el ataque decide solo
 cuando es claro; el desvío solo resuelve la zona gris y nunca retira nada por sí mismo.
 Con `method = "stack"` (si ganó en validación) decide una regresión logística sobre los
-percentiles (guard/stack.py) con un solo umbral. Entre ventanas que se solapan gana la más
-corta: una oración maliciosa no arrastra a sus vecinas.
+percentiles (guard/stack.py) con un solo umbral, solo sobre trozos con ataque alto. Entre
+ventanas que se solapan gana la más corta: una oración maliciosa no arrastra a sus vecinas.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def mask(
     """Qué trozos pasan el umbral, antes de resolver solapes."""
     t = thresholds or ref.thresholds
     if ref.method == "stack" and refs is not None and len(ref.stack):
-        risk = stack.predict(stack.features(chunks, attack_scores, refs), ref.stack)
+        risk = stack.risk(chunks, attack_scores, refs, ref.stack)
         return [bool(r >= t["tau_stack"]) for r in risk]
     return [flags(a, d, t) for a, d in zip(attack_scores, drift_scores, strict=True)]
 

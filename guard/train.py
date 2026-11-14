@@ -289,7 +289,7 @@ def stack_method(
     w = stack.fit(np.array(xs), np.array(ys))
 
     def risk(s: Scored) -> np.ndarray:
-        return stack.predict(stack.features(s.case.chunks, s.attack, s.refs), w)
+        return stack.risk(s.case.chunks, s.attack, s.refs, w)
 
     tau = best_single(tune or scored, risk, new_outputs=tune is None)
 

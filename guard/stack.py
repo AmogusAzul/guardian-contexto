@@ -25,6 +25,9 @@ FEATURES = (
     *(f"class_{c}" for c in CLASSES),
     "log_words",  # log(1 + palabras): los trozos largos y cortos no puntúan igual
 )
+# Piso del ataque: bajo el percentil 90 de los legítimos, el riesgo es 0. Sin él, un trozo largo
+# y fuera de tema se retiraba con ataque 0,5: el desvío solo no retira nada (paso 5).
+ATTACK_FLOOR = 0.9
 L2 = 100.0  # sobre rasgos estandarizados; de 100 a 1000 da lo mismo en validación
 
 
@@ -78,3 +81,14 @@ def fit(x: np.ndarray, y: np.ndarray, iterations: int = 100) -> np.ndarray:
 
 def predict(x: np.ndarray, w: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-np.clip(x @ w, -50, 50)))
+
+
+def risk(
+    chunks: Sequence[Chunk],
+    attack_scores: Sequence[float],
+    refs: Sequence[Mapping[str, float | None]],
+    w: np.ndarray,
+) -> np.ndarray:
+    """Probabilidad por trozo, 0 bajo el piso del ataque. Es lo que se compara con tau_stack."""
+    p = predict(features(chunks, attack_scores, refs), w)
+    return np.where(np.asarray(attack_scores) >= ATTACK_FLOOR, p, 0.0)
