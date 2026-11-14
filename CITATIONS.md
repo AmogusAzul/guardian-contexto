@@ -28,3 +28,4 @@ La hackathon exige citar todo código, dataset, librería o fragmento generado c
 | PyTorch, NumPy | https://pytorch.org, https://numpy.org | BSD-3-Clause | `guard/` |
 | Esqueleto del guardián (`guard/`), primera versión (rama `algorithm-v0`) y `data/seed.csv` (filas sintéticas) | Generados con asistencia de IA (Claude) | — | `guard/`, `data/seed.csv` |
 | Combinación aprendida de puntajes, presupuesto conformal del umbral y comparación de métodos (rama `algo-polish`) | Generados con asistencia de IA (Claude); el presupuesto sigue la idea de *split conformal prediction* (Vovk et al.) | — | `guard/stack.py`, `guard/train.py`, `guard/decision.py` |
+| Versión 2 del guardián: `check()` con el desvío y la logística, copias sin llamada y sin pedido al ajustar la logística, descripción de la herramienta en la referencia “llamada”, y `bench/eval_detector.py` | Generados con asistencia de IA (Claude) | — | `guard/__init__.py`, `guard/train.py`, `bench/eval_detector.py` |

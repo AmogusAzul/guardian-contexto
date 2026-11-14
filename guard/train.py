@@ -67,7 +67,12 @@ def load_cases(path: Path) -> list[Case]:
                 Case(
                     source=r["source"],
                     task=r["prompt"],
-                    tool=ToolCall(params["name"], "", params.get("arguments") or {}),
+                    # la misma llamada que en ejecución: nombre, descripción y argumentos
+                    tool=ToolCall(
+                        params["name"],
+                        r.get("tool_description") or "",
+                        params.get("arguments") or {},
+                    ),
                     chunks=chunks,
                     labels=[label(c, r["injected_text"]) for c in chunks],
                     attacked=bool(r["injected_text"]),
@@ -274,6 +279,9 @@ def attack_only(
     return flag, {"thresholds": {"tau_high": tau}}
 
 
+DROPPED: tuple[tuple[str, ...], ...] = ((), ("tool",), ("request",))
+
+
 def stack_method(
     scored: list[Scored],
     train_tables: dict[str, np.ndarray],
@@ -281,11 +289,17 @@ def stack_method(
 ):
     xs, ys = [], []
     for s in scored:
-        x = stack.features(s.case.chunks, s.attack, s.refs)
-        for row, lab in zip(x, s.case.labels):
-            if lab is not None:
-                xs.append(row)
-                ys.append(1.0 if lab == "attack" else 0.0)
+        # Cada trozo entra tres veces: con todas sus referencias, sin la llamada y sin el
+        # pedido. Validación siempre trae las dos, y en ejecución pueden faltar (AgentDojo no
+        # pasa `herramienta`; manifiestos y `origen="usuario"` no tienen pedido). Sin estas
+        # copias, una salida sin llamada tenía 11 % de legítimas tocadas en vez de 4 %.
+        for drop in DROPPED:
+            refs = [{**p, **{r: None for r in drop}} for p in s.refs]
+            x = stack.features(s.case.chunks, s.attack, refs)
+            for row, lab in zip(x, s.case.labels):
+                if lab is not None:
+                    xs.append(row)
+                    ys.append(1.0 if lab == "attack" else 0.0)
     w = stack.fit(np.array(xs), np.array(ys))
 
     def risk(s: Scored) -> np.ndarray:
@@ -486,12 +500,8 @@ def main() -> None:
     for name, (r1, r2) in results.items():
         gap = r1.mean(axis=0) - r2.mean(axis=0)
         print(f"  {name:<24} {cell(r1)}   {cell(r2)}   {gap[0]:+.0%} / {gap[1]:+.0%}")
-    best = max(results, key=lambda n: results[n][1][:, 0].mean())
-    print(
-        f"mejor a la misma tasa: {best} (la versión 1 usa igual solo ataque; ver docs/algorithm.md)"
-    )
-    chosen = "solo ataque"  # versión 1: el desvío no decide
-    print(f"elegido: {chosen}; se ajusta con toda la validación")
+    chosen = max(results, key=lambda n: results[n][1][:, 0].mean())
+    print(f"elegido (a la misma tasa): {chosen}; se ajusta con toda la validación")
 
     flag, fitted = METHODS[chosen](scored, train_tables)
     ref.tables = {k: v for k, v in ref.tables.items() if not k.startswith("drift/k")}
