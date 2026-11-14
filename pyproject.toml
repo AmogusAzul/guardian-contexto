@@ -1,0 +1,12 @@
+[project]
+name = "guardian-contexto"
+version = "0.1.0"
+description = "Guardián de contexto: retira instrucciones maliciosas de las salidas de herramientas antes de que lleguen al LLM."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+# Se agregan en el bloque 1: sentence-transformers (Algoritmo), agentdojo (Integración).
+
+[tool.setuptools]
+packages = ["guard"]

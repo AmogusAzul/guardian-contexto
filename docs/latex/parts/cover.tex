@@ -1,0 +1,22 @@
+% Portada: título, qué es este documento, qué leer e índice.
+\thispagestyle{empty}
+{\color{ink}\rule{\linewidth}{4pt}}\par\vspace{18pt}
+{\bfseries\fontsize{30}{34}\selectfont\hyphenpenalty=10000 \Project\par}\vspace{10pt}
+{\color{muted}\Large Retirar las instrucciones escondidas en las salidas de las herramientas antes de que lleguen al LLM}\par\vspace{6pt}
+{\color{muted}\Hackathon}\par\vspace{24pt}
+
+\begin{callout}
+Este PDF es el resumen para leer del plan. El detalle, y la fuente de verdad, está en \Docs{} (Markdown, también para los agentes). Si algo no está escrito, no está decidido: se decide en un checkpoint y se escribe.
+\end{callout}
+
+\subsection*{Qué leer}
+\begin{itemize}
+  \item \textbf{Todos:} la Parte 1 y tu rol en la Parte 2.
+  \item \roletag{algo}{Algoritmo} y \roletag{datos}{Datos}: la Parte 3 y \Docs{algorithm.md}.
+  \item \roletag{server}{Integración y benchmarks}: la Parte 3 y \Docs{architecture.md}.
+  \item \roletag{pitch}{Pitch}: las Partes 3 y 4 y \Docs{pitch.md}.
+\end{itemize}
+
+\clearpage
+\renewcommand{\contentsname}{Contenido}
+{\small\setlength{\parskip}{1pt}\linespread{1.0}\selectfont\tableofcontents}

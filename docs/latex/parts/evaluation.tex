@@ -1,0 +1,40 @@
+% Parte 3: algoritmo y evaluación. Detalle en docs/algorithm.md y docs/evaluation.md.
+\docpart{algo}{Algoritmo y evaluación}{Cómo funciona el guardián, cómo se mide y qué número queremos poder decir.}
+
+\section{El algoritmo, versión 1}
+\begin{enumerate}
+  \item \textbf{Trozos:} ventanas de 1 a 3 oraciones que se solapan.
+  \item \textbf{Embeddings} con un modelo pequeño en CPU, centrados y normalizados.
+  \item \textbf{Puntaje de ataque:} coseno con la dirección promedio(inyecciones) $-$ promedio(legítimos).
+  \item \textbf{Puntaje de desvío:} qué tan lejos está el trozo de la tarea del usuario.
+  \item \textbf{Decisión:} se retira el trozo si su puntaje de ataque es alto, o si es medio y además se desvía de la tarea. Los umbrales se eligen en validación.
+\end{enumerate}
+Si hay tiempo (versión 2): regresión logística o vecinos cercanos en vez de la resta de promedios.
+
+\textbf{Regla de oro:} ningún texto de AgentDojo entra al entrenamiento ni a la elección de umbrales. AgentDojo es el examen final.
+
+\section{Cómo se mide}
+\begin{card}{server}{Principal: AgentDojo (con la clave de OpenAI)}
+Agentes reales en entornos simulados (banco, correo, Slack, viajes) atacados con inyección indirecta. Mide \textbf{utilidad} (tareas legítimas resueltas, con y sin ataque) y \textbf{éxito del ataque}. Todas las defensas con el \textbf{mismo} modelo barato de OpenAI; primero 2 tareas para medir el costo, luego una suite completa (\code{banking}).
+\end{card}
+\begin{card}{datos}{Secundario: el guardián solo (sin API)}
+Detección y falsos positivos por trozo sobre el conjunto de prueba propio. Rápido y gratis. Si alcanza, también MCPTox (descripciones de herramientas envenenadas).
+\end{card}
+
+\subsection*{Contra qué}
+Sin defensa · filtro de palabras clave (la línea base obligatoria) · detector DeBERTa de AgentDojo (el rival directo) · nuestras dos variantes: \code{guard-detect} (descarta la salida completa, como DeBERTa) y \code{guard-sanitize} (retira solo los trozos). Si \code{guard-sanitize} conserva más utilidad con un éxito del ataque parecido, la tesis queda demostrada.
+
+\subsection*{Reglas para que los números valgan}
+Siempre con su \code{n} e intervalo de confianza; éxito del ataque siempre junto a utilidad; umbrales elegidos en validación y la prueba corrida \textbf{una sola vez}; todo número de la ficha sale de \code{results/}.
+
+\section{La frase que queremos poder decir}
+\begin{callout}[algo]
+“En AgentDojo (\_\_ casos, modelo \_\_), el guardián bajó el éxito de los ataques de \_\_\,\% a \_\_\,\% conservando \_\_\,\% de utilidad bajo ataque, frente a \_\_\,\% del detector DeBERTa, y tarda \_\_ ms por salida.”
+\end{callout}
+
+\section{Riesgos principales}
+\begin{itemize}
+  \item \textbf{Atacante adaptativo:} quien conozca el guardián puede reescribir el ataque. Se dice en la ficha; es una capa, no la defensa completa.
+  \item \textbf{Falsos positivos} en textos legítimos que dan órdenes: por eso los \emph{hard negatives} y el puntaje de desvío.
+  \item \textbf{Atajo del dataset:} si las inyecciones de entrenamiento tienen otro estilo que las de AgentDojo, los números de validación engañan. Por eso se escriben como salidas de herramientas.
+\end{itemize}

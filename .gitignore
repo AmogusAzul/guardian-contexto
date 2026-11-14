@@ -4,3 +4,10 @@ docs/latex/*.log
 docs/latex/*.fls
 docs/latex/*.fdb_latexmk
 docs/latex/*.out
+docs/latex/*.toc
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.env

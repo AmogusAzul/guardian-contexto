@@ -1,0 +1,58 @@
+% Parte 2: equipo. Detalle en docs/team.md.
+\docpart{server}{El equipo}{Cuatro roles pensados para la rúbrica, un cronograma por bloques y pocas reglas.}
+
+\section{Roles}
+Algoritmo y Datos construyen la defensa (Impacto); Integración la mide y la deja reproducible (Ejecución); Pitch la vuelve entendible en 2 minutos (Presentación).
+
+\begin{card}{algo}{Algoritmo (líder)}
+\textbf{Hace:} el paquete \code{guard/}: trozos, embeddings, puntajes, umbrales y saneo.\par
+\textbf{Primera hora:} elegir el modelo de embeddings y medir cuánto tarda.\par
+\textbf{Listo cuando:} \code{check()} real cumple el contrato, tarda menos de 300 ms y supera al filtro de palabras clave en validación.
+\end{card}
+
+\begin{card}{datos}{Datos}
+\textbf{Hace:} inyecciones escritas como salidas de herramientas, salidas legítimas y \emph{hard negatives} (textos legítimos que dan órdenes, como “please send the report by Friday”), separados por fuente.\par
+\textbf{Primera hora:} fuentes con su licencia en \code{CITATIONS.md} y las primeras 20 filas.\par
+\textbf{Listo cuando:} hay al menos 150 inyecciones y 150 legítimos, \textbf{sin ningún texto de AgentDojo}.
+\end{card}
+
+\begin{card}{server}{Integración y benchmarks}
+\textbf{Hace:} el repo ejecutable, AgentDojo con la clave de OpenAI, el adaptador del guardián, las líneas base, \code{results/}, el README y la demo para la ficha.\par
+\textbf{Primera hora:} instalar AgentDojo y correr una tarea sin defensa.\par
+\textbf{Listo cuando:} un solo comando del README reproduce la tabla de la ficha.
+\end{card}
+
+\begin{card}{pitch}{Pitch}
+\textbf{Hace:} registro, ficha técnica, resumen, guion, video de la demo, citas y entrega. Va a todos los checkpoints.\par
+\textbf{Primera hora:} \textbf{registrar al equipo antes de las 11:00}, pedir la plantilla oficial de la ficha y bocetarla.\par
+\textbf{Listo cuando:} la ficha tiene los números de \code{results/} y todo se entregó a las 16:00.
+\end{card}
+
+Si son cinco, la quinta persona hace un proxy MCP que pasa las respuestas de cualquier servidor por \code{check()}: vuelve la idea adoptable, pero nunca se arriesga la evaluación por esto.
+
+\clearpage
+\section{Cronograma (sábado 14 de noviembre)}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright}p{24mm}>{\raggedright}X>{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Bloque} & \textbf{Qué se hace} & \textbf{Checkpoint}\\\midrule
+1 · 9:00–10:00 & modelo de embeddings; fuentes de datos; AgentDojo instalado; \textbf{registro} y plantilla & —\\
+2 · 10:00–10:45 & \code{check()} v0; formato de datos; adaptador con el mock; guion preliminar & \textbf{CP1:} AgentDojo corre una tarea con el mock\\
+3 · 10:45–13:00 & \code{check()} v1; dataset completo; líneas base completas; ficha v1 & \textbf{CP2:} guardián real en AgentDojo; líneas base en \code{results/}\\
+4 · 13:00–15:00 & umbrales en validación y congelar; corridas finales; demo y capturas; resultados en la ficha & \textbf{CP3:} números finales en la ficha\\
+5 · 15:00–16:00 & README reproducible, citas completas, límites y uso dual & \textbf{entrega a las 16:00}\\
+6 · 16:00–17:00 & dos ensayos con la ficha en pantalla & pitch a las 17:10\\\bottomrule
+\end{tabularx}
+\end{center}
+El reparto por rol de cada bloque está en \Docs{team.md}.
+
+\section{Reglas}
+\begin{enumerate}
+  \item En cada checkpoint, cada persona muestra algo \textbf{funcionando}.
+  \item Nadie se queda atascado más de 30 minutos sin preguntar.
+  \item Primero la versión fea de punta a punta, después se mejora.
+  \item Los contratos no cambian sin avisar en un checkpoint.
+  \item Todo lo que se usa (código, datos, texto generado con IA) se cita en \code{CITATIONS.md} en el momento.
+  \item \textbf{De la hackathon:} nada contra sistemas reales; los ataques son datos, nunca se ejecutan ni se publican como herramienta; solo datos públicos o sintéticos.
+\end{enumerate}

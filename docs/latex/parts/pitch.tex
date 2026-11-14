@@ -1,0 +1,40 @@
+% Parte 4: ficha y pitch. Detalle (con borradores del resumen y del uso dual) en docs/pitch.md.
+\docpart{pitch}{Ficha y pitch}{Qué se entrega, cómo se ve la ficha y cómo se cuentan 3 minutos.}
+
+\section{Qué se entrega}
+\begin{itemize}
+  \item \textbf{Antes de las 11:00:} registro del equipo (una persona), Track 1.
+  \item \textbf{A las 16:00} (cierre estricto 17:00): resumen de 150 a 250 palabras, enlace al repo y \textbf{ficha técnica en PDF} (máximo 2 páginas).
+  \item \textbf{En el repo:} README reproducible, \code{results/}, \code{CITATIONS.md} y el video de la demo.
+\end{itemize}
+La plantilla oficial de la ficha se pide a la organización en la primera hora.
+
+\section{La ficha}
+\begin{card}{pitch}{Página 1 — qué y por qué}
+Título y una frase · la amenaza con un ejemplo real de AgentDojo (la inyección resaltada) · el diagrama de la defensa · una captura de la demo: salida cruda contra salida limpia.
+\end{card}
+\begin{card}{pitch}{Página 2 — la evidencia}
+Metodología en 4 líneas · una tabla de resultados (sin defensa, palabras clave, DeBERTa y nuestras dos variantes) con los tres números clave en grande · límites y riesgo de uso dual · comando para reproducir y citas.
+\end{card}
+
+\section{Los 3 minutos}
+\begin{center}
+\begin{tabularx}{\linewidth}{>{\ttfamily}p{23mm}>{\raggedright}p{34mm}>{\raggedright\arraybackslash}X}
+\toprule
+\textrm{\textbf{Tiempo}} & \textbf{En la ficha} & \textbf{Qué se dice}\\\midrule
+0:00–0:25 & la amenaza & Un ejemplo: el usuario pidió algo inocente y la herramienta traía otra orden escondida.\\
+0:25–1:00 & la amenaza & Por qué es el riesgo del Track 1: los agentes tratan lo que leen como órdenes.\\
+1:00–1:40 & el diagrama & La idea del mapa; sanear en vez de bloquear; milisegundos, cero tokens.\\
+1:40–2:30 & la tabla & Éxito del ataque y utilidad, contra las líneas base, siempre juntos.\\
+2:30–3:00 & límites & La limitación principal y el cierre: “Su agente puede seguir leyendo el mundo sin obedecerlo.”\\\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Preguntas probables}
+\begin{card}{pitch}{Respuestas de 20 segundos que todos se saben}
+\textbf{¿Y un atacante que reescribe el ataque?} Es la limitación principal; lo medimos y lo decimos. Es una capa barata, no la defensa completa.\\[3pt]
+\textbf{¿Por qué no un LLM que juzgue?} Cuesta tokens, tarda segundos y también puede ser inyectado. El nuestro es determinista y explica qué retiró.\\[3pt]
+\textbf{¿Cuánto daña las tareas normales?} Lo medimos: utilidad con y sin ataque, contra las mismas líneas base.\\[3pt]
+\textbf{¿Entrenaron con AgentDojo?} No. Ningún texto de AgentDojo entra al entrenamiento ni a los umbrales.\\[3pt]
+\textbf{¿Cómo lo reproduzco?} Un comando del README regenera la tabla de la ficha.
+\end{card}

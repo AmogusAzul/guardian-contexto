@@ -1,12 +1,12 @@
-% Documento completo: una página por fragmento en pages/.
-% Para compilar solo algunas páginas, comentar las líneas \input que no se necesiten.
-\documentclass[8pt]{extarticle}
+% Versión para leer del plan. El detalle (fuente de verdad) está en ../*.md.
+% La parte compartida está en shared/; cada parte es un archivo en parts/.
+\documentclass[11pt]{article}
 \input{shared/preamble}
 \input{shared/facts}
 \begin{document}
-\input{pages/one-page-plan}
-\clearpage
-\input{pages/business-brief}
-\clearpage
-\input{pages/algorithm-risks}
+\input{parts/cover}
+\input{parts/idea}
+\input{parts/team}
+\input{parts/evaluation}
+\input{parts/pitch}
 \end{document}
