@@ -17,3 +17,5 @@ data/raw/
 
 # Manifiestos MCP: contienen texto de MCPTox (sin licencia declarada, payloads funcionales). Se generan en local con data/build.py
 data/mcp_manifests.jsonl
+# Trazas de AgentDojo (bench/run_agentdojo.py --logdir); los números van en results/
+runs/
