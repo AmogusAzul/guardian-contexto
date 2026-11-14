@@ -117,22 +117,37 @@ _StrictLoader.add_constructor(
     yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates
 )
 _IDENTIFIER = re.compile(r"^[\w.-]+$")
+_FLAT_LINE = re.compile(
+    r"^[A-Za-z_][\w.-]*:( |$)"
+)  # "clave: valor" con clave sin espacios
+_QUOTED_LINE = re.compile(
+    r"""^[A-Za-z_][\w.-]*: (?:'.*'|".*")$"""
+)  # una línea, valor entre comillas
 
 
 def _yaml(t: str) -> dict | list | None:
     """YAML de verdad (el de yaml.safe_dump, como en AgentDojo), o None si es prosa.
 
-    - Tiene estructura: alguna línea con sangría o que empieza con "- " (también la primera).
-    - Sin claves repetidas: un chat "Nombre: mensaje" parsea como YAML y las claves repetidas
-      se pisan, perdiendo líneas (y con ellas un ataque).
-    - Claves con forma de campo (sin espacios), al menos la mitad: "Lista de compras:" seguida
-      de viñetas es prosa, no datos.
+    Tiene que tener forma de YAML, una de estas:
+    - estructura: alguna línea con sangría o que empieza con "- " (también la primera);
+    - plano: 2 o más líneas, todas "clave: valor" con la clave sin espacios
+      (`message: …\nstatus: success`, lo que safe_dump da para un objeto sin listas);
+    - una sola línea "clave: 'valor entre comillas'" (safe_dump citó el valor).
+    Y además:
+    - sin claves repetidas: un chat "Nombre: mensaje" parsea como YAML y las claves
+      repetidas se pisan, perdiendo líneas (y con ellas un ataque);
+    - claves de arriba con forma de campo (sin espacios), al menos la mitad: "Lista de
+      compras:" seguida de viñetas es prosa. Solo cuentan las de arriba: más adentro un
+      objeto puede tener claves como "1:00 PM".
     Una sola clave arriba o una lista de un elemento sí valen: `{"emails": [...]}` es lo común.
     """
     lines = t.splitlines()
-    if not any(
+    structured = t.startswith("- ") or any(
         line.startswith((" ", "\t", "- ")) for line in lines[1:]
-    ) and not t.startswith("- "):
+    )
+    flat = len(lines) >= 2 and all(_FLAT_LINE.match(line) for line in lines)
+    quoted = len(lines) == 1 and bool(_QUOTED_LINE.match(t))
+    if not (structured or flat or quoted):
         return None
     try:
         v = yaml.load(
@@ -142,20 +157,17 @@ def _yaml(t: str) -> dict | list | None:
         return None
     if not isinstance(v, (dict, list)) or not v:
         return None
-    keys = list(_keys(v))
+    keys = _top_keys(v)
     if keys and sum(bool(_IDENTIFIER.match(str(k))) for k in keys) * 2 < len(keys):
         return None
     return v
 
 
-def _keys(node: Any):
-    if isinstance(node, dict):
-        for k, val in node.items():
-            yield k
-            yield from _keys(val)
-    elif isinstance(node, list):
-        for val in node:
-            yield from _keys(val)
+def _top_keys(v: dict | list) -> list[Any]:
+    """Las claves de arriba: las del objeto, o las de los objetos de la lista."""
+    if isinstance(v, dict):
+        return list(v)
+    return [k for item in v if isinstance(item, dict) for k in item]
 
 
 def _loose(s: str) -> tuple[dict[str, str], dict[str, tuple[int, int]]]:
